@@ -1,6 +1,6 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Weather Catastrophe Update)
+ * Soldier Frontline: Operation Survival (Spawn Logic Overhaul)
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -24,20 +24,27 @@ const WAVE_DURATION = 40 * 60; // 40 วินาที
 let waveTimer = WAVE_DURATION;
 let healDropsInWave = 0; 
 
-// Schedules
+// --- Spawn Configuration (New System) ---
+let spawnConfig = {
+    soldier: { count: 0, max: 0, timer: 0 },
+    drone:   { count: 0, max: 0, timer: 0 },
+    tank:    { count: 0, max: 0, timer: 0 },
+    poison:  { count: 0, max: 0, timer: 0 },
+    shield:  { count: 0, max: 0, timer: 0 }
+};
+
+// Schedules (Items)
 let upgradeSchedule = []; 
-let tankSchedule = [];      
-let shieldEnemySchedule = []; 
 
 // Environment
 let gravity = 0.6;
 let floorY = 0;
 
-// --- Weather System (Updated) ---
-let weather = 'CLEAR'; // CLEAR, ACID_RAIN, THUNDERSTORM, LAVA, SOULSAND
-const weatherCycleLength = 900; // 15 seconds cycle (10s Clear, 5s Event)
-let lightningStrikes = []; // Array เก็บข้อมูลสายฟ้า
-let weatherInitFrame = 0; // เฟรมที่เริ่มเกิด weather เพื่อใช้คำนวณ delay
+// Weather
+let weather = 'CLEAR'; 
+const weatherCycleLength = 900; 
+let lightningStrikes = []; 
+let weatherInitFrame = 0; 
 
 // Entities
 let player;
@@ -48,9 +55,6 @@ let particles = [];
 let items = [];
 let platforms = []; 
 let boss = null;
-
-// Spawn Timers
-let enemySpawnTimer = 0;
 
 // Inputs
 const mousePos = { x: 0, y: 0 };
@@ -106,29 +110,43 @@ if (isMobile) {
     bindTouch('btn-shoot', 'mouse');
 }
 
-// --- Wave Init Function ---
+// --- Wave Init Function (Spawn Logic Setup) ---
 function initWave() {
     waveTimer = WAVE_DURATION;
     upgradeSchedule = [];
-    tankSchedule = [];
-    shieldEnemySchedule = [];
     healDropsInWave = 0; 
     
+    // 1. Upgrade Drops (3 times per wave)
     for (let i = 0; i < 3; i++) {
         upgradeSchedule.push(randomFrameInWave());
     }
 
-    if (wave >= 2) {
-        for (let i = 0; i < 3; i++) {
-            tankSchedule.push(randomFrameInWave());
-        }
-    }
+    // --- 17. Configure Spawn Limits & Timers ---
+    
+    // Soldier: 14 + 3 per wave
+    spawnConfig.soldier.max = 14 + ((wave - 1) * 3);
+    spawnConfig.soldier.count = 0;
+    spawnConfig.soldier.timer = 60; // Start spawning soon
 
-    if (wave >= 5) {
-        for (let i = 0; i < 4; i++) {
-            shieldEnemySchedule.push(randomFrameInWave());
-        }
-    }
+    // Drone: 2 + 1 per wave
+    spawnConfig.drone.max = 2 + (wave - 1);
+    spawnConfig.drone.count = 0;
+    spawnConfig.drone.timer = 120;
+
+    // Tank: 3 per wave (Every 10s)
+    spawnConfig.tank.max = (wave >= 2) ? 3 : 0;
+    spawnConfig.tank.count = 0;
+    spawnConfig.tank.timer = 600; // 10s * 60
+
+    // Poison: 7 per wave (Every 4s)
+    spawnConfig.poison.max = (wave >= 3) ? 7 : 0;
+    spawnConfig.poison.count = 0;
+    spawnConfig.poison.timer = 240; // 4s * 60
+
+    // Shielded: 2 per wave (Every 12s)
+    spawnConfig.shield.max = (wave >= 5) ? 2 : 0;
+    spawnConfig.shield.count = 0;
+    spawnConfig.shield.timer = 720; // 12s * 60
 }
 
 function randomFrameInWave() {
@@ -187,7 +205,6 @@ class Player {
     }
 
     update() {
-        // Poison Status
         if (this.poisonTimer > 0) {
             this.poisonTimer--;
             this.poisonTick++;
@@ -200,7 +217,6 @@ class Player {
             this.poisonTick = 0;
         }
 
-        // Crouch Logic
         if (keys.s) {
             if (!this.isCrouching) {
                 this.isCrouching = true;
@@ -217,14 +233,8 @@ class Player {
             }
         }
 
-        // Movement with SOULSAND Effect
-        let moveSpeed = this.speed;
-        if (weather === 'SOULSAND' && this.isGrounded) {
-            moveSpeed *= 0.8; // Slow down by 20%
-        }
-
-        if (keys.a) { this.vx = -moveSpeed; }
-        else if (keys.d) { this.vx = moveSpeed; }
+        if (keys.a) { this.vx = -this.speed; }
+        else if (keys.d) { this.vx = this.speed; }
         else { this.vx *= 0.8; }
 
         const isSpaceNewlyPressed = keys.space && !keys_last.space;
@@ -453,17 +463,13 @@ class Enemy {
         }
         
         this.lastShot = 0;
-        this.fireRate = Math.max(50, 160); 
+        this.fireRate = Math.max(50, 160 - (wave * 5)); 
         this.lastShot = frames + Math.random() * 100;
     }
     
     update() {
-        // --- SOULSAND Effect on Enemy (Faster) ---
-        let currentSpeed = this.speed;
-        if (weather === 'SOULSAND') currentSpeed *= 1.15; // 15% Faster
-
-        if (this.vx > 0) this.vx = currentSpeed;
-        else this.vx = -currentSpeed;
+        if (this.vx > 0) this.vx = this.speed;
+        else this.vx = -this.speed;
 
         this.x += this.vx;
 
@@ -473,9 +479,9 @@ class Enemy {
             }
         } else {
             if (this.x <= 0) {
-                this.vx = Math.abs(currentSpeed); 
+                this.vx = Math.abs(this.speed); 
             } else if (this.x >= canvas.width - this.w) {
-                this.vx = -Math.abs(currentSpeed); 
+                this.vx = -Math.abs(this.speed); 
             }
         }
 
@@ -864,22 +870,57 @@ function createParticles(x, y, count, color) {
     }
 }
 
-function spawnEnemy() {
-    if (boss) return; 
-    enemySpawnTimer--;
-    
-    if (enemySpawnTimer <= 0) {
-        let types = ['SOLDIER'];
-        if (wave >= 1) types.push('DRONE');
-        if (wave >= 2) types.push('TANK');
-        if (wave >= 3) types.push('POISON');
-        if (wave >= 5) types.push('SHIELDED');
-        
-        let type = types[Math.floor(Math.random() * types.length)];
-        enemies.push(new Enemy(type));
-        
-        let baseDelay = Math.max(40, 180 - (wave * 5)); 
-        enemySpawnTimer = baseDelay + Math.random() * 60; 
+function spawnSystem() {
+    if (boss) return;
+
+    // 1. Soldiers (Random fast spawn)
+    if (spawnConfig.soldier.count < spawnConfig.soldier.max) {
+        spawnConfig.soldier.timer--;
+        if (spawnConfig.soldier.timer <= 0) {
+            enemies.push(new Enemy('SOLDIER'));
+            spawnConfig.soldier.count++;
+            spawnConfig.soldier.timer = 60 + Math.random() * 120; // 1-3s random
+        }
+    }
+
+    // 2. Drones
+    if (spawnConfig.drone.count < spawnConfig.drone.max) {
+        spawnConfig.drone.timer--;
+        if (spawnConfig.drone.timer <= 0) {
+            enemies.push(new Enemy('DRONE'));
+            spawnConfig.drone.count++;
+            spawnConfig.drone.timer = 180 + Math.random() * 120; // 3-5s random
+        }
+    }
+
+    // 3. Tank (Every 10s)
+    if (spawnConfig.tank.count < spawnConfig.tank.max) {
+        spawnConfig.tank.timer--;
+        if (spawnConfig.tank.timer <= 0) {
+            enemies.push(new Enemy('TANK'));
+            spawnConfig.tank.count++;
+            spawnConfig.tank.timer = 600; // 10s
+        }
+    }
+
+    // 4. Poison (Every 4s)
+    if (spawnConfig.poison.count < spawnConfig.poison.max) {
+        spawnConfig.poison.timer--;
+        if (spawnConfig.poison.timer <= 0) {
+            enemies.push(new Enemy('POISON'));
+            spawnConfig.poison.count++;
+            spawnConfig.poison.timer = 240; // 4s
+        }
+    }
+
+    // 5. Shielded (Every 12s)
+    if (spawnConfig.shield.count < spawnConfig.shield.max) {
+        spawnConfig.shield.timer--;
+        if (spawnConfig.shield.timer <= 0) {
+            enemies.push(new Enemy('SHIELDED'));
+            spawnConfig.shield.count++;
+            spawnConfig.shield.timer = 720; // 12s
+        }
     }
 }
 
@@ -909,42 +950,27 @@ function spawnSpecialEvents() {
          items.push(new Item(x, -50, 'UPGRADE'));
          showNotification("WEAPON DROP!");
     }
-
-    if (tankSchedule.includes(waveTimer)) {
-        enemies.push(new Enemy('TANK'));
-        showNotification("HEAVY ENEMY!");
-    }
-
-    if (shieldEnemySchedule.includes(waveTimer)) {
-        enemies.push(new Enemy('SHIELDED'));
-        showNotification("SHIELDED UNIT!");
-    }
 }
 
 function handleWeather() {
     let cycle = frames % weatherCycleLength; 
     
-    // --- 14. Weather Selection ---
-    if (cycle === 600) { // Start of Weather Event
+    // --- 16. Removed Soul Sand, Thunderstorm 10-20px ---
+    if (cycle === 600) { 
         let r = Math.random();
         weatherInitFrame = frames;
-        if (r < 0.25) weather = 'ACID_RAIN';
-        else if (r < 0.50) weather = 'THUNDERSTORM';
-        else if (r < 0.75) weather = 'LAVA';
-        else weather = 'SOULSAND';
+        if (r < 0.33) weather = 'ACID_RAIN';
+        else if (r < 0.66) weather = 'THUNDERSTORM';
+        else weather = 'LAVA';
         
         showNotification("WARNING: " + weather + " DETECTED!");
-        // Clear previous lightning data
         lightningStrikes = [];
-    } else if (cycle === 0) { // End of cycle
+    } else if (cycle === 0) { 
         weather = 'CLEAR';
         showNotification("WEATHER CLEARED");
     }
 
-    // --- Weather Effects ---
-    
     if (weather === 'ACID_RAIN') {
-        // Visual
         ctx.strokeStyle = '#a569bd'; 
         ctx.lineWidth = 2;
         for (let i = 0; i < 15; i++) {
@@ -955,48 +981,50 @@ function handleWeather() {
             ctx.lineTo(rx - 5, ry + 20);
             ctx.stroke();
         }
-        // Damage (5 per sec)
-        if (frames % 12 === 0) { // 60/5 = 12 frames approx
+        if (frames % 12 === 0) { 
             let isSheltered = false;
             let pCenter = player.x + player.w/2;
             platforms.forEach(p => {
                 if (pCenter > p.x && pCenter < p.x + p.w && player.y > p.y) isSheltered = true;
             });
             if (!isSheltered) {
-                player.takeDamage(1); // 1 damage 5 times/sec = 5dps
+                player.takeDamage(1); 
                 createParticles(player.x + player.w/2, player.y, 1, '#a569bd'); 
             }
         }
     } 
     
     else if (weather === 'THUNDERSTORM') {
-        // Strike Logic (1 per sec)
         if (frames % 60 === 0) {
-            let strikeX = Math.random() * (canvas.width - 50);
-            lightningStrikes.push({ x: strikeX, timer: 18, state: 'WARN' }); // 18 frames = 0.3s
+            // --- 16. Thunderstorm Targeting: Near Player (10-20px) ---
+            let pCenter = player.x + player.w / 2;
+            let offset = 10 + Math.random() * 10; // Random 10 to 20
+            let dir = Math.random() < 0.5 ? -1 : 1;
+            let strikeX = pCenter + (offset * dir);
+
+            if (strikeX < 20) strikeX = 20;
+            if (strikeX > canvas.width - 20) strikeX = canvas.width - 20;
+
+            lightningStrikes.push({ x: strikeX, timer: 18, state: 'WARN' }); 
         }
 
-        // Process Strikes
         for (let i = lightningStrikes.length - 1; i >= 0; i--) {
             let s = lightningStrikes[i];
             s.timer--;
             
             if (s.state === 'WARN') {
-                // Draw Warning (Blue Light)
                 ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
                 ctx.fillRect(s.x - 20, 0, 40, canvas.height);
                 
                 if (s.timer <= 0) {
                     s.state = 'STRIKE';
-                    s.timer = 10; // Strike lasts 10 frames
-                    // Deal Damage
+                    s.timer = 10; 
                     if (player.x < s.x + 20 && player.x + player.w > s.x - 20) {
-                        player.takeDamage(20);
+                        player.takeDamage(30); 
                         showNotification("ZAPPED!");
                     }
                 }
             } else if (s.state === 'STRIKE') {
-                // Draw Lightning
                 ctx.strokeStyle = '#fff';
                 ctx.lineWidth = 5;
                 ctx.beginPath();
@@ -1011,32 +1039,22 @@ function handleWeather() {
     } 
     
     else if (weather === 'LAVA') {
-        // Logic: Wait 1s (60 frames) then rise
         let activeTime = frames - weatherInitFrame;
         
-        if (activeTime > 60) {
-            // Draw Lava
-            let lavaH = 110; // Max height based on lowest platform (floorY - 120)
+        if (activeTime > 120) {
+            let lavaH = 110; 
             let currentLavaY = floorY - lavaH;
             
             ctx.fillStyle = 'rgba(255, 69, 0, 0.8)';
             ctx.fillRect(0, currentLavaY, canvas.width, lavaH);
             
-            // Damage Check (80 per sec)
             if (player.y + player.h > currentLavaY + 10) {
-                if (frames % 45 === 0) { // Tick damage
-                    player.takeDamage(60); // High damage chunks
+                if (frames % 45 === 0) { 
+                    player.takeDamage(40); 
                 }
             }
         }
     } 
-    
-    else if (weather === 'SOULSAND') {
-        // Visual: Brown Floor
-        ctx.fillStyle = '#5d4037';
-        ctx.fillRect(0, floorY, canvas.width, 100);
-        // Speed modification is handled in Player/Enemy update classes
-    }
 }
 
 function checkCollisions() {
@@ -1211,7 +1229,8 @@ function gameLoop() {
             boss.update();
             boss.draw();
         } else {
-            spawnEnemy();
+            // --- 17. Use Spawn System ---
+            spawnSystem();
         }
 
         spawnSpecialEvents(); 
