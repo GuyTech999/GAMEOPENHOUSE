@@ -1,30 +1,36 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival
+ * Soldier Frontline: Operation Survival (Final Version)
  */
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// --- FPS Control Variables ---
+const fps = 60;
+const fpsInterval = 1000 / fps;
+let then = Date.now();
+let elapsed;
+
 // Game State
-let gameState = 'START'; // START, PLAYING, GAMEOVER
-let lastTime = 0;
+let gameState = 'START'; 
 let score = 0;
 let highScore = localStorage.getItem('sf_highscore') || 0;
 let wave = 1;
 let frames = 0;
-let nextBossScore = 1000; // Target score to spawn boss
+
+// --- Wave & Timer System (Updated) ---
+const WAVE_DURATION = 40 * 60; // 40 วินาที * 60 FPS = 2400 frames
+let waveTimer = WAVE_DURATION;
+let upgradeSchedule = []; // อาเรย์เก็บเวลาที่จะดรอปปืน 3 ครั้ง
 
 // Environment
 let gravity = 0.6;
 let floorY = 0;
-let cameraX = 0;
-let gameSpeed = 0; 
 
-// Weather
-let weather = 'CLEAR'; // CLEAR, RAIN, ACID_RAIN
-let weatherTimer = 0;
-let acidRainDrops = [];
+// Weather (Fixed Cycle: 10s Clear / 5s Rain)
+let weather = 'CLEAR'; 
+const weatherCycleLength = 900; 
 
 // Entities
 let player;
@@ -33,25 +39,17 @@ let enemyBullets = [];
 let enemies = [];
 let particles = [];
 let items = [];
-let platforms = []; // Array for floating platforms
+let platforms = []; 
 let boss = null;
 
-// ... (โค้ดเดิมด้านบน)
 // Spawn Timers
 let enemySpawnTimer = 0;
 
-// --- ส่วนที่เพิ่มใหม่: ตัวแปรคุม FPS ---
-const fps = 60;
-const fpsInterval = 1000 / fps;
-let then = Date.now();
-let elapsed;
-// -----------------------------------
-
 // Inputs
+const mousePos = { x: 0, y: 0 };
 const keys = {
     a: false, d: false, w: false, s: false, space: false, mouse: false
 };
-// ตัวแปรสำหรับตรวจจับการกดปุ่มครั้งใหม่ (Rising Edge Detection)
 const keys_last = {
     a: false, d: false, w: false, s: false, space: false, mouse: false
 };
@@ -69,13 +67,13 @@ resize();
 window.addEventListener('keydown', e => {
     if(e.key === 'a' || e.key === 'A') keys.a = true;
     if(e.key === 'd' || e.key === 'D') keys.d = true;
-    if(e.key === 's' || e.key === 'S') keys.s = true; // เพิ่มปุ่ม S สำหรับก้มตัว
+    if(e.key === 's' || e.key === 'S') keys.s = true; 
     if(e.key === 'w' || e.key === 'W' || e.key === ' ') keys.space = true;
 });
 window.addEventListener('keyup', e => {
     if(e.key === 'a' || e.key === 'A') keys.a = false;
     if(e.key === 'd' || e.key === 'D') keys.d = false;
-    if(e.key === 's' || e.key === 'S') keys.s = false; // เพิ่มปุ่ม S สำหรับก้มตัว
+    if(e.key === 's' || e.key === 'S') keys.s = false; 
     if(e.key === 'w' || e.key === 'W' || e.key === ' ') keys.space = false;
 });
 window.addEventListener('mousedown', () => keys.mouse = true);
@@ -89,18 +87,30 @@ window.addEventListener('mousemove', e => {
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 if (isMobile) {
     document.getElementById('mobile-controls').style.display = 'block';
-    
     const bindTouch = (id, key) => {
         const btn = document.getElementById(id);
         btn.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
         btn.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
     };
-
     bindTouch('btn-left', 'a');
     bindTouch('btn-right', 'd');
-    bindTouch('btn-crouch', 's'); // ผูกปุ่มก้มตัวใหม่
+    bindTouch('btn-crouch', 's');
     bindTouch('btn-jump', 'space');
     bindTouch('btn-shoot', 'mouse');
+}
+
+// --- Wave Management Function ---
+function initWave() {
+    waveTimer = WAVE_DURATION;
+    upgradeSchedule = [];
+    
+    // สุ่มเวลา 3 ครั้งในช่วง 40 วินาที เพื่อดรอป UPGRADE
+    // สุ่มช่วงเฟรมที่ 200 ถึง 2200 (ไม่เกิดตอนเริ่มหรือจบพอดีเกินไป)
+    for (let i = 0; i < 3; i++) {
+        let randomFrame = Math.floor(Math.random() * (WAVE_DURATION - 400)) + 200;
+        upgradeSchedule.push(randomFrame);
+    }
+    // announceWave(wave); // เรียกแสดงผลตอนเริ่มเวฟใหม่
 }
 
 // --- Classes ---
@@ -115,12 +125,8 @@ class Platform {
     draw() {
         ctx.fillStyle = '#4a5568';
         ctx.fillRect(this.x, this.y, this.w, this.h);
-        
-        // Structure details
         ctx.fillStyle = '#2d3748';
         ctx.fillRect(this.x + 5, this.y + 5, this.w - 10, this.h - 10);
-        
-        // Hazard stripes (Warning)
         ctx.fillStyle = '#f1c40f';
         for(let i=0; i<this.w; i+=20) {
             ctx.fillRect(this.x + i, this.y + this.h - 5, 10, 5);
@@ -130,85 +136,68 @@ class Platform {
 
 class Player {
     constructor() {
-        this.initialH = 70; // ความสูงปกติ
-        this.crouchH = 40; // ความสูงเมื่อก้มตัว
+        this.initialH = 70; 
+        this.crouchH = 40; 
         this.w = 40;
         this.h = this.initialH;
         this.x = 100;
         this.y = floorY - this.h;
         this.vx = 0;
         this.vy = 0;
-        this.baseSpeed = 2.0;
+        this.baseSpeed = 4.0;
         this.speed = this.baseSpeed;
-        this.jumpPower = -10; // <<--- ปรับตรงนี้ให้สูงขึ้นจาก -8 เป็น -10
+        this.jumpPower = -13; 
         this.color = '#3498db';
         this.maxHp = 100;
         this.hp = 100;
         this.shield = 0;
         this.damage = 20; 
         this.gunLevel = 1;
-        this.facingRight = true;
         this.lastShot = 0;
-        this.fireRate = 30; 
+        this.fireRate = 15; 
         this.isGrounded = true;
         this.isCrouching = false;
-        
-        // Double Jump Logic State
         this.jumpCount = 0;
         this.maxJumps = 2;
     }
 
     update() {
-        // --- 1. Crouch Logic (ก้มตัว) ---
-        const isCrouchInput = keys.s;
-        
-        if (isCrouchInput && this.isGrounded) {
-            this.isCrouching = true;
-            this.h = this.crouchH;
-            this.speed = this.baseSpeed * 0.5; // ความเร็วลดลงครึ่งนึงเมื่อก้ม
+        // Crouch Logic
+        if (keys.s) {
+            if (!this.isCrouching) {
+                this.isCrouching = true;
+                this.h = this.crouchH;
+                this.y += (this.initialH - this.crouchH);
+                this.speed = this.baseSpeed * 0.4;
+            }
         } else {
-            // เช็คว่าสามารถยืนขึ้นได้ไหม (ในเกมนี้ไม่มีเพดาน จึงยืนขึ้นได้เสมอ)
-            this.isCrouching = false;
-            this.h = this.initialH;
-            this.speed = this.baseSpeed;
+            if (this.isCrouching) {
+                this.isCrouching = false;
+                this.y -= (this.initialH - this.crouchH);
+                this.h = this.initialH;
+                this.speed = this.baseSpeed;
+            }
         }
 
-        // ปรับตำแหน่ง Y ให้ติดพื้นเสมอเมื่อความสูงเปลี่ยน
-        if (this.y + this.h > floorY) {
-            this.y = floorY - this.h;
-        }
+        // Movement
+        if (keys.a) { this.vx = -this.speed; }
+        else if (keys.d) { this.vx = this.speed; }
+        else { this.vx *= 0.8; }
 
-        // --- 2. Movement ---
-        if (keys.a) { this.vx = -this.speed; this.facingRight = false; }
-        else if (keys.d) { this.vx = this.speed; this.facingRight = true; }
-        else { this.vx *= 0.8; } // Friction
-
-        // --- 3. UPDATED Double Jump Logic (ใช้ Rising Edge) ---
-        // ตรวจสอบว่า Space/W ถูกกดใหม่ในเฟรมนี้หรือไม่
+        // Double Jump
         const isSpaceNewlyPressed = keys.space && !keys_last.space;
-        
-        if (isSpaceNewlyPressed && !this.isCrouching) { // กระโดดไม่ได้ขณะก้มตัว
-            
+        if (isSpaceNewlyPressed && !this.isCrouching) { 
             if (this.jumpCount < this.maxJumps) {
-                
-                let jumpVelocity = this.jumpPower; // Default is -10 (Jump 1)
-                
-                if (this.jumpCount === 1) { 
-                    // จังหวะกระโดดที่ 2: ใช้แรงกระโดดที่สูงขึ้น!
-                    jumpVelocity = -12; 
-                }
-
+                let jumpVelocity = this.jumpPower; 
+                if (this.jumpCount === 1) jumpVelocity = -12; 
                 this.vy = jumpVelocity; 
                 this.isGrounded = false;
                 this.jumpCount++; 
-                
-                // Visuals
-                let pColor = this.jumpCount === 1 ? '#fff' : '#00ffff';
-                createParticles(this.x + this.w/2, this.y + this.h, 5, pColor);
+                createParticles(this.x + this.w/2, this.y + this.h, 5, '#fff');
             }
         } 
         
-        // --- 4. Physics & Collision ---
+        // Physics
         this.vy += gravity;
         this.x += this.vx;
         this.y += this.vy;
@@ -218,7 +207,7 @@ class Player {
             this.y = floorY - this.h;
             this.vy = 0;
             this.isGrounded = true;
-            this.jumpCount = 0; // รีเซ็ตจำนวนจัมพ์เมื่อแตะพื้น
+            this.jumpCount = 0; 
         }
 
         // Platform Collision
@@ -226,7 +215,7 @@ class Player {
         platforms.forEach(p => {
             if (this.vy >= 0 && 
                 this.y + this.h >= p.y && 
-                this.y + this.h <= p.y + p.h + 5 && 
+                this.y + this.h <= p.y + p.h + 10 && 
                 this.x + this.w > p.x && 
                 this.x < p.x + p.w) {
                 
@@ -238,18 +227,13 @@ class Player {
             }
         });
 
-        // Set grounded status
-        if (this.y + this.h >= floorY) {
-            this.isGrounded = true;
-        } else if (!onPlatform) {
-            this.isGrounded = false;
-        }
+        if (this.y + this.h >= floorY) this.isGrounded = true;
+        else if (!onPlatform) this.isGrounded = false;
         
-        // --- 5. Boundaries ---
         if (this.x < 0) this.x = 0;
         if (this.x > canvas.width - this.w) this.x = canvas.width - this.w;
 
-        // --- 6. Shooting ---
+        // Shooting
         if (keys.mouse) {
             if (frames - this.lastShot > this.fireRate) {
                 this.shoot();
@@ -259,79 +243,59 @@ class Player {
     }
 
     shoot() {
-        const bSpeed = 7; 
-        const dir = this.facingRight ? 1 : -1;
-        const bx = this.x + (this.facingRight ? this.w : 0);
-        let by = this.y + (this.isCrouching ? 15 : 25); // ปรับตำแหน่งปืนเมื่อก้มตัว
+        const bulletSpeed = 10;
+        const startX = this.x + this.w/2;
+        const startY = this.y + this.h/2;
         
-        bullets.push(new Bullet(bx, by, bSpeed * dir, 0, this.damage, true));
-        this.x -= dir * 2;
+        const angle = Math.atan2(mousePos.y - startY, mousePos.x - startX);
+        const vx = Math.cos(angle) * bulletSpeed;
+        const vy = Math.sin(angle) * bulletSpeed;
+        
+        bullets.push(new Bullet(startX, startY, vx, vy, this.damage, true));
     }
 
     draw() {
         ctx.save();
         ctx.translate(this.x, this.y);
 
-        // Animation Bobbing (ลดการโยกเมื่อก้มตัว)
-        let bob = 0;
-        if (Math.abs(this.vx) > 0.5 && this.isGrounded && !this.isCrouching) {
-            bob = Math.sin(frames * 0.3) * 3;
-        }
-
-        // Legs/Base
-        ctx.fillStyle = '#1c2833';
-        if (this.isCrouching) {
-            // ก้มตัว: แสดงเป็นฐานกว้าง
-            ctx.fillRect(0, this.h - 10, this.w, 10);
-        } else if (this.isGrounded && Math.abs(this.vx) > 0.5) {
-            const legSwing = Math.sin(frames * 0.3) * 10;
-            ctx.fillRect(5, 50, 10, 20 + legSwing); // Leg 1
-            ctx.fillRect(25, 50, 10, 20 - legSwing); // Leg 2
-        } else {
-            // Jump/Stand pose
-            ctx.fillRect(5, this.h - 20, 10, 15);
-            ctx.fillRect(25, this.h - 25, 10, 15);
-        }
-
-        // Body
         ctx.fillStyle = this.color;
-        let torsoY = this.isCrouching ? 0 + bob : 20 + bob;
-        let torsoH = this.isCrouching ? this.h - 10 : 30;
-        ctx.fillRect(0, torsoY, this.w, torsoH); // Torso
+        ctx.fillRect(0, 0, this.w, this.h);
 
-        // Head (อยู่ด้านบนสุดเสมอ)
-        ctx.fillStyle = '#f1c40f'; // Helmet
-        let headY = this.isCrouching ? -10 + bob : 10 + bob;
-        ctx.beginPath();
-        ctx.arc(this.w/2, headY, 12, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Gun
-        ctx.fillStyle = '#333';
-        let gunY = this.isCrouching ? 15 + bob : 25 + bob;
-        if (this.facingRight) {
-            ctx.fillRect(20, gunY, 30, 8);
+        ctx.fillStyle = '#f1c40f';
+        if (this.isCrouching) {
+            ctx.fillRect(5, 5, 30, 10);
         } else {
-            ctx.fillRect(-10, gunY, 30, 8);
+            ctx.fillRect(5, 10, 30, 10);
         }
-        
-        // Shield Overlay
+
         if (this.shield > 0) {
             ctx.strokeStyle = '#00ffff';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(this.w/2, this.h/2, 40, 0, Math.PI*2);
+            ctx.arc(this.w/2, this.h/2, this.w, 0, Math.PI*2);
             ctx.stroke();
         }
 
         ctx.restore();
+        
+        if (!isMobile) {
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(mousePos.x, mousePos.y, 10, 0, Math.PI*2);
+            ctx.moveTo(mousePos.x - 15, mousePos.y);
+            ctx.lineTo(mousePos.x + 15, mousePos.y);
+            ctx.moveTo(mousePos.x, mousePos.y - 15);
+            ctx.lineTo(mousePos.x, mousePos.y + 15);
+            ctx.stroke();
+        }
     }
 
     takeDamage(amount) {
         if (this.shield > 0) {
             this.shield -= amount;
             if (this.shield < 0) {
-                this.hp += this.shield; // Overflow damage to HP
+                this.hp += this.shield; 
                 this.shield = 0;
             }
         } else {
@@ -340,9 +304,7 @@ class Player {
         createParticles(this.x + this.w/2, this.y + this.h/2, 10, '#f00');
         updateHUD();
         
-        if (this.hp <= 0) {
-            endGame();
-        }
+        if (this.hp <= 0) endGame();
     }
 }
 
@@ -352,7 +314,7 @@ class Bullet {
         this.y = y;
         this.vx = vx;
         this.vy = vy;
-        this.r = 4;
+        this.r = 5;
         this.damage = dmg;
         this.isPlayer = isPlayer;
         this.active = true;
@@ -360,10 +322,12 @@ class Bullet {
     update() {
         this.x += this.vx;
         this.y += this.vy;
-        if (this.x < -50 || this.x > canvas.width + 50 || this.y > canvas.height) this.active = false;
+        if (this.x < -50 || this.x > canvas.width + 50 || this.y < -50 || this.y > canvas.height + 50) {
+            this.active = false;
+        }
     }
     draw() {
-        ctx.fillStyle = this.isPlayer ? '#fff' : '#ff0000';
+        ctx.fillStyle = this.isPlayer ? '#ffff00' : '#ff0000';
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
         ctx.fill();
@@ -372,31 +336,32 @@ class Bullet {
 
 class Enemy {
     constructor(type) {
-        this.type = type; // 'SOLDIER', 'DRONE'
+        this.type = type; 
         this.w = type === 'SOLDIER' ? 40 : 30;
         this.h = type === 'SOLDIER' ? 70 : 30;
         this.x = canvas.width + 50;
-        // Soldiers stay on ground, Drones fly
-        this.y = type === 'SOLDIER' ? floorY - this.h : 50 + Math.random() * (floorY - 200);
-        this.hp = type === 'SOLDIER' ? 30 + (wave * 5) : 15 + (wave * 3);
+        this.y = type === 'SOLDIER' ? floorY - this.h : 50 + Math.random() * (floorY - 250);
         
-        this.speed = type === 'SOLDIER' ? 0.7 + (Math.random() * 0.5) : 1.4;
+        let baseHp = type === 'SOLDIER' ? 30 : 20;
+        this.hp = baseHp + (wave * 15);
+        
+        this.speed = type === 'SOLDIER' ? 1.0 + (wave * 0.1) : 2.0 + (wave * 0.1);
         
         this.color = type === 'SOLDIER' ? '#2ecc71' : '#e74c3c';
         this.lastShot = 0;
-        this.fireRate = type === 'SOLDIER' ? 140 : 120; // เพิ่มความหน่วงขึ้น
+        this.fireRate = Math.max(60, 150 - (wave * 5)); 
     }
     update() {
         this.x -= this.speed;
 
-        // AI Shooting
         if (this.x < canvas.width && this.x > 0) {
             if (frames - this.lastShot > this.fireRate) {
-                // Shoot at player
-                let targetY = player.y + player.h/2; // ยิงไปที่กลางตัวผู้เล่น (ซึ่งอาจจะก้มอยู่)
-                let angle = Math.atan2(targetY - (this.y + this.h/2), (player.x + player.w/2) - this.x);
-                let speed = 4; 
-                enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*speed, Math.sin(angle)*speed, 10, false));
+                let targetX = player.x + player.w/2;
+                let targetY = player.y + player.h/2;
+                let angle = Math.atan2(targetY - (this.y + this.h/2), targetX - this.x);
+                let speed = 5; 
+                let dmg = 10 + (wave * 2); 
+                enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*speed, Math.sin(angle)*speed, dmg, false));
                 this.lastShot = frames + Math.random() * 50;
             }
         }
@@ -405,33 +370,40 @@ class Enemy {
         ctx.fillStyle = this.color;
         if (this.type === 'SOLDIER') {
             ctx.fillRect(this.x, this.y, this.w, this.h);
-            ctx.fillStyle = '#111';
-            ctx.fillRect(this.x - 10, this.y + 20, 20, 5); // Gun
+            ctx.fillStyle = '#fff'; 
+            ctx.fillRect(this.x - 5, this.y + 10, 10, 5); 
         } else {
             ctx.beginPath();
             ctx.arc(this.x + this.w/2, this.y + this.h/2, this.w/2, 0, Math.PI*2);
             ctx.fill();
-            ctx.fillStyle = '#ccc';
-            ctx.fillRect(this.x - 5, this.y - 5, this.w + 10, 5);
         }
     }
 }
 
 class Boss {
     constructor() {
-        this.w = 150;
-        this.h = 100;
+        this.w = 160;
+        this.h = 120;
         this.x = canvas.width + 100;
         this.y = floorY - this.h - 50; 
         
-        this.maxHp = 1000 + ((wave - 1) * 500); 
+        this.maxHp = 1500 + (wave * 1000); 
         this.hp = this.maxHp;
         
         this.phase = 'ENTER'; 
-        this.targetX = canvas.width - 200;
-        this.timer = 0;
-        this.color = '#8e44ad';
+        this.targetX = canvas.width - 250;
         
+        if (wave % 3 === 1) {
+            this.bossType = 'TANK'; 
+            this.color = '#8e44ad';
+        } else if (wave % 3 === 2) {
+            this.bossType = 'SPEED'; 
+            this.color = '#c0392b';
+        } else {
+            this.bossType = 'OVERLORD'; 
+            this.color = '#2c3e50';
+        }
+
         document.getElementById('boss-hud').style.display = 'block';
         document.getElementById('score-container').style.display = 'none'; 
         updateBossHUD(this.hp, this.maxHp);
@@ -439,36 +411,49 @@ class Boss {
     update() {
         if (this.phase === 'ENTER') {
             if (this.x > this.targetX) {
-                this.x -= 0.5; 
+                this.x -= 2; 
             } else {
                 this.phase = 'ATTACK';
-                this.timer = frames;
             }
         } else if (this.phase === 'ATTACK') {
-            this.y = (floorY - this.h - 50) + Math.sin(frames * 0.03) * 50; 
+            let floatSpeed = this.bossType === 'SPEED' ? 0.1 : 0.03;
+            this.y = (floorY - this.h - 50) + Math.sin(frames * floatSpeed) * 80; 
 
-            if (frames % 120 === 0) { 
-                // Attack 1: Tri-shot
-                for(let i=-1; i<=1; i++) {
-                    enemyBullets.push(new Bullet(this.x, this.y + this.h/2, -3.5, i * 1, 15, false)); 
-                }
-            }
+            let attackRate = this.bossType === 'SPEED' ? 60 : 100;
             
-            if (frames % 200 === 0) {
-                // Attack 2: Low shot (ทดสอบการก้มตัว)
-                let speed = 4;
-                let angle = Math.atan2((floorY - player.crouchH/2) - (this.y + this.h/2), player.x - this.x);
-                 enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*speed, Math.sin(angle)*speed, 20, false));
+            if (frames % attackRate === 0) { 
+                let angle = Math.atan2((player.y + player.h/2) - (this.y + this.h/2), (player.x + player.w/2) - this.x);
+                let bSpeed = this.bossType === 'SPEED' ? 8 : 5;
+                let dmg = 20 + wave;
+                enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*bSpeed, Math.sin(angle)*bSpeed, dmg, false));
+            }
+
+            if (frames % (attackRate * 2) === 0) {
+                if (this.bossType === 'OVERLORD') {
+                    for(let i=0; i<8; i++) {
+                        let a = (Math.PI*2 / 8) * i;
+                        enemyBullets.push(new Bullet(this.x + this.w/2, this.y + this.h/2, Math.cos(a)*5, Math.sin(a)*5, 15, false));
+                    }
+                } else {
+                    for(let i=-1; i<=1; i++) {
+                         enemyBullets.push(new Bullet(this.x, this.y + this.h/2, -5, i * 2, 15, false));
+                    }
+                }
             }
         }
     }
     draw() {
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.w, this.h);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(this.x + 20, this.y + 20, 50, 30);
-        ctx.fillStyle = '#555';
-        ctx.fillRect(this.x - 40, this.y + 60, 40, 20);
+        
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(this.x + 20, this.y + 30, 40, 10);
+        ctx.fillRect(this.x + this.w - 60, this.y + 30, 40, 10);
+        
+        ctx.fillStyle = '#f39c12';
+        ctx.beginPath();
+        ctx.arc(this.x + this.w/2, this.y + this.h/2 + 20, 20, 0, Math.PI*2);
+        ctx.fill();
     }
     takeDamage(amount) {
         this.hp -= amount;
@@ -478,21 +463,21 @@ class Boss {
         if (this.hp <= 0) {
             createParticles(this.x + this.w/2, this.y + this.h/2, 100, '#ffa500'); 
             boss = null;
-            score += 1000;
+            score += 1000 + (wave * 500);
+            
+            // --- Boss Killed: Next Wave ---
             wave++;
             
-            nextBossScore += 2000; 
-
+            // Spawn reward items
             items.push(new Item(this.x, floorY - 30, 'HEAL'));
-            items.push(new Item(this.x + 30, floorY - 30, 'UPGRADE'));
-            items.push(new Item(this.x + 60, floorY - 30, 'SHIELD')); 
+            items.push(new Item(this.x + 40, floorY - 30, 'SCORE'));
             
             document.getElementById('boss-hud').style.display = 'none';
             document.getElementById('score-container').style.display = 'block';
             updateHUD();
             
-            // Big Wave Announcement
             announceWave(wave);
+            initWave(); // Reset timer for new wave
         }
     }
 }
@@ -527,8 +512,8 @@ class Item {
         ctx.fillStyle = this.color;
         ctx.fillRect(this.x, this.y, this.w, this.h);
         ctx.fillStyle = '#fff';
-        ctx.font = '20px Arial';
-        ctx.fillText(this.type[0], this.x + 8, this.y + 22);
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText(this.type.substring(0,3), this.x + 2, this.y + 20);
         
         if (!this.grounded) {
             ctx.beginPath();
@@ -538,7 +523,7 @@ class Item {
             ctx.strokeStyle = '#fff';
             ctx.stroke();
             ctx.beginPath();
-            ctx.arc(this.x + 15, this.y - 30, 20, Math.PI, 0);
+            ctx.arc(this.x + 15, this.y - 30, 15, Math.PI, 0);
             ctx.fillStyle = '#fff';
             ctx.fill();
         }
@@ -577,81 +562,84 @@ function createParticles(x, y, count, color) {
 
 function spawnEnemy() {
     if (boss) return; 
-    
     enemySpawnTimer--;
-    
     if (enemySpawnTimer <= 0) {
         let type = Math.random() > 0.7 ? 'DRONE' : 'SOLDIER';
         enemies.push(new Enemy(type));
-        
-        let baseDelay = Math.max(120, 300 - (wave * 5)); 
-        enemySpawnTimer = baseDelay + Math.random() * 80; 
+        let baseDelay = Math.max(60, 200 - (wave * 10)); 
+        enemySpawnTimer = baseDelay + Math.random() * 60; 
     }
 }
 
 function spawnAirdrop() {
-    if (Math.random() < 0.001) { 
-        let types = ['HEAL', 'UPGRADE', 'SHIELD', 'SCORE'];
+    // 1. General Airdrop (Heal, Shield, Score) - Every 15s
+    if (frames > 0 && frames % 900 === 0) { 
         let rand = Math.random();
-        let type;
-        if (rand < 0.3) type = 'HEAL';
-        else if (rand < 0.5) type = 'UPGRADE'; 
-        else if (rand < 0.7) type = 'SHIELD';
-        else type = 'SCORE';
-
-        let x = Math.random() * (canvas.width - 50);
+        let type = 'SCORE';
+        if (rand < 0.4) type = 'HEAL';
+        else if (rand < 0.8) type = 'SHIELD';
+        
+        let x = 50 + Math.random() * (canvas.width - 100);
         items.push(new Item(x, -50, type));
-        showNotification("AIRDROP INCOMING!");
+        showNotification("SUPPLIES INCOMING!");
+    }
+
+    // 2. Scheduled UPGRADE Airdrop (Exactly 3 per wave)
+    if (!boss && upgradeSchedule.length > 0) {
+        // เช็คว่า waveTimer ตรงกับที่กำหนดไว้ไหม (ใช้ <= เพราะ waveTimer นับถอยหลัง)
+        // เพื่อความชัวร์เราจะเช็คว่า waveTimer ตรงกับค่าในอาเรย์ไหม
+        if (upgradeSchedule.includes(waveTimer)) {
+             let x = 50 + Math.random() * (canvas.width - 100);
+             items.push(new Item(x, -50, 'UPGRADE'));
+             showNotification("WEAPON DROP!");
+        }
     }
 }
 
 function handleWeather() {
-    if (weather === 'CLEAR' && Math.random() < 0.001) {
-        weather = Math.random() > 0.5 ? 'RAIN' : 'ACID_RAIN';
-        weatherTimer = 600; 
-        showNotification(weather === 'ACID_RAIN' ? "WARNING: ACID RAIN!" : "STORM APPROACHING");
-    }
-
-    if (weather !== 'CLEAR') {
-        weatherTimer--;
-        if (weatherTimer <= 0) {
+    let cycle = frames % weatherCycleLength; 
+    if (cycle > 600) {
+        if (weather !== 'ACID_RAIN') {
+            weather = 'ACID_RAIN';
+            showNotification("WARNING: ACID RAIN!");
+        }
+    } else {
+        if (weather !== 'CLEAR') {
             weather = 'CLEAR';
             showNotification("WEATHER CLEARED");
         }
+    }
 
-        ctx.strokeStyle = weather === 'ACID_RAIN' ? '#a569bd' : '#85c1e9';
-        ctx.lineWidth = 1;
-        for (let i = 0; i < 20; i++) {
+    if (weather === 'ACID_RAIN') {
+        ctx.strokeStyle = '#a569bd'; 
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 15; i++) {
             let rx = Math.random() * canvas.width;
             let ry = Math.random() * canvas.height;
             ctx.beginPath();
             ctx.moveTo(rx, ry);
-            ctx.lineTo(rx - 5, ry + 15);
+            ctx.lineTo(rx - 5, ry + 20);
             ctx.stroke();
         }
 
-        // ACID RAIN DAMAGE LOGIC WITH SHELTER
-        if (weather === 'ACID_RAIN' && frames % 60 === 0) {
-            // Check overhead shelter
+        if (frames % 60 === 0) {
             let isSheltered = false;
-            let playerCenter = player.x + player.w/2;
-            
+            let pCenter = player.x + player.w/2;
             platforms.forEach(p => {
-                if (playerCenter > p.x && playerCenter < p.x + p.w && player.y > p.y) {
+                if (pCenter > p.x && pCenter < p.x + p.w && player.y > p.y) {
                     isSheltered = true;
                 }
             });
 
             if (!isSheltered) {
                 player.takeDamage(2);
-                createParticles(player.x + player.w/2, player.y, 2, '#a569bd'); // Visual sizzle
+                createParticles(player.x + player.w/2, player.y, 3, '#a569bd'); 
             }
         }
     }
 }
 
 function checkCollisions() {
-    // Bullets vs Enemies/Boss
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         if (!b.active) continue;
@@ -675,18 +663,15 @@ function checkCollisions() {
                 createParticles(b.x, b.y, 3, '#0f0');
                 if (e.hp <= 0) {
                     enemies.splice(j, 1);
-                    score += 50;
-                    if (Math.random() < 0.2) items.push(new Item(e.x, e.y, 'SCORE'));
+                    score += 50 + (wave * 10);
                 }
                 break;
             }
         }
     }
 
-    // Enemy Bullets vs Player
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
         let b = enemyBullets[i];
-        // ตรวจสอบการชนกับผู้เล่น
         if (b.x > player.x && b.x < player.x + player.w &&
             b.y > player.y && b.y < player.y + player.h) {
             player.takeDamage(b.damage);
@@ -694,16 +679,15 @@ function checkCollisions() {
         }
     }
 
-    // Player vs Items
     for (let i = items.length - 1; i >= 0; i--) {
         let it = items[i];
         if (player.x < it.x + it.w && player.x + player.w > it.x &&
             player.y < it.y + it.h && player.y + player.h > it.y) {
             
-            if (it.type === 'HEAL') { player.hp = Math.min(player.hp + 30, player.maxHp); showNotification("HEALED!"); }
-            if (it.type === 'UPGRADE') { player.damage += 20; player.gunLevel++; showNotification("WEAPON UPGRADE (+20 DMG)!"); }
+            if (it.type === 'HEAL') { player.hp = Math.min(player.hp + 50, player.maxHp); showNotification("HEALED!"); }
+            if (it.type === 'UPGRADE') { player.damage += 10; player.gunLevel++; showNotification("WEAPON UPGRADE!"); }
             if (it.type === 'SHIELD') { player.shield = 50; showNotification("SHIELD EQUIPPED!"); }
-            if (it.type === 'SCORE') { score += 100; }
+            if (it.type === 'SCORE') { score += 500; }
             
             items.splice(i, 1);
             updateHUD();
@@ -718,7 +702,16 @@ function updateHUD() {
     document.getElementById('score').innerText = score;
     document.getElementById('gun-level').innerText = player.gunLevel;
     document.getElementById('gun-dmg').innerText = player.damage;
-    document.getElementById('wave-display').innerText = "WAVE " + wave;
+    
+    // แสดงเวลา Wave หรือ Boss
+    if (boss) {
+         document.getElementById('wave-display').innerText = `WAVE ${wave} (BOSS!)`;
+         document.getElementById('wave-display').style.color = 'red';
+    } else {
+         let timeLeft = Math.ceil(waveTimer / 60);
+         document.getElementById('wave-display').innerText = `WAVE ${wave} (${timeLeft}s)`;
+         document.getElementById('wave-display').style.color = 'white';
+    }
 }
 
 function updateBossHUD(hp, max) {
@@ -736,43 +729,44 @@ function showNotification(text) {
 function announceWave(newWave) {
     const el = document.getElementById('wave-announcement');
     el.innerText = `WAVE ${newWave}`;
-    
-    // Reset Animation
     el.classList.remove('animate-wave');
-    void el.offsetWidth; // Trigger reflow
+    void el.offsetWidth; 
     el.classList.add('animate-wave');
 }
 
-// --- Main Loop ---
+// --- Main Loop (FPS Locked) ---
 
 function gameLoop() {
     if (gameState !== 'PLAYING') return;
 
-    // 1. เรียก Loop รอไว้ก่อน
     requestAnimationFrame(gameLoop);
 
-    // 2. คำนวณเวลา (Delta Time Check)
     let now = Date.now();
     elapsed = now - then;
 
-    // 3. ถ้าเวลาผ่านไปเกินกำหนด (เช่นเกิน 16.6ms สำหรับ 60fps) ค่อยรันเกม
     if (elapsed > fpsInterval) {
-        
-        // ปรับเวลาให้ตรงรอบ เพื่อความลื่นไหล
         then = now - (elapsed % fpsInterval);
 
-        // --- เริ่ม LOGIC เกมเดิม ---
         frames++;
         
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // --- Wave Logic Update ---
+        if (!boss) {
+            waveTimer--;
+            if (waveTimer <= 0) {
+                // Time's up! Spawn Boss
+                boss = new Boss();
+                showNotification("WARNING: BOSS SPAWNED!");
+            }
+        }
 
+        // Render BG
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         let grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
         grd.addColorStop(0, "#2c3e50");
         grd.addColorStop(1, "#4a235a");
         ctx.fillStyle = grd;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw Platforms
         platforms.forEach(p => p.draw());
 
         ctx.fillStyle = '#212f3c';
@@ -807,12 +801,6 @@ function gameLoop() {
             if (p.life <= 0) particles.splice(i, 1);
         });
 
-        // UPDATED BOSS LOGIC
-        if (!boss && score >= nextBossScore) {
-            boss = new Boss();
-            showNotification("BOSS APPROACHING!");
-        }
-
         if (boss) {
             boss.update();
             boss.draw();
@@ -825,26 +813,21 @@ function gameLoop() {
         checkCollisions();
         updateHUD();
 
-        // Update last key states
         keys_last.space = keys.space;
         keys_last.s = keys.s;
-        keys_last.mouse = keys.mouse;
-        keys_last.a = keys.a;
-        keys_last.d = keys.d;
-        // --- จบ LOGIC เกมเดิม ---
     }
 }
 
 function startGame() {
     document.getElementById('start-screen').classList.add('hidden');
     document.getElementById('game-over-screen').classList.add('hidden');
-    
     document.getElementById('high-score').innerText = highScore;
 
     gameState = 'PLAYING';
     then = Date.now();
     score = 0;
     wave = 1;
+    frames = 0; 
     player = new Player();
     bullets = [];
     enemies = [];
@@ -854,22 +837,19 @@ function startGame() {
     boss = null;
     weather = 'CLEAR';
     enemySpawnTimer = 0;
-    nextBossScore = 1000; // Reset boss target score
     
-    // Create MORE Random Platforms for Coverage
-    for(let i=0; i<6; i++) {
-        let w = 120 + Math.random() * 150;
-        let x = Math.random() * (canvas.width - w);
-        // Distribute them vertically
-        let y = floorY - 100 - (Math.random() * 400); 
-        
-        // Ensure not too close to each other (simple check overlap not strict)
-        platforms.push(new Platform(x, y, w));
-    }
-    
+    // Platforms
+    platforms.push(new Platform(150, floorY - 150, 200));
+    platforms.push(new Platform(500, floorY - 150, 200));
+    platforms.push(new Platform(300, floorY - 300, 150));
+    platforms.push(new Platform(700, floorY - 300, 200));
+    platforms.push(new Platform(100, floorY - 450, 150));
+    platforms.push(new Platform(500, floorY - 500, 250));
+
     document.getElementById('boss-hud').style.display = 'none';
     document.getElementById('score-container').style.display = 'block';
 
+    initWave(); // Setup first wave timer & upgrades
     updateHUD();
     gameLoop();
 }
