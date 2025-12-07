@@ -1237,3 +1237,4 @@ function endGame() {
 function resetGame() {
     startGame();
 }
+
