@@ -1,6 +1,6 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Cooldowns, Instant Death, Laser Physics)
+ * Soldier Frontline: Operation Survival (Weather & Spawn Balance Patch)
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -44,6 +44,7 @@ let weather = 'CLEAR';
 const weatherCycleLength = 900; 
 let lightningStrikes = []; 
 let weatherInitFrame = 0; 
+let lavaHit = false; // ตัวแปรเช็คว่าโดนดาเมจลาวาหรือยัง
 
 // Entities
 let player;
@@ -116,13 +117,13 @@ if (isMobile) {
     bindTouch('btn-ult', 'ult');
 }
 
-// --- 28. Tutorial Logic (5 Seconds) ---
+// --- Tutorial ---
 function showTutorial() {
     document.getElementById('start-screen').classList.add('hidden');
     document.getElementById('tutorial-screen').classList.remove('hidden');
     
     let btn = document.getElementById('btn-start-game');
-    let timeLeft = 5; // Reduced to 5s
+    let timeLeft = 5; 
     
     btn.disabled = true;
     btn.classList.add('disabled');
@@ -141,6 +142,7 @@ function showTutorial() {
     }, 1000);
 }
 
+// --- Wave Init ---
 function initWave() {
     waveTimer = WAVE_DURATION;
     upgradeSchedule = [];
@@ -151,7 +153,9 @@ function initWave() {
         upgradeSchedule.push(randomFrameInWave());
     }
 
-    spawnConfig.soldier.max = 14 + ((wave - 1) * 3);
+    // --- Spawn Config ---
+    
+    spawnConfig.soldier.max = 4 + ((wave - 1) * 2);
     spawnConfig.soldier.count = 0;
     spawnConfig.soldier.timer = 60; 
 
@@ -226,25 +230,21 @@ class Player {
         this.poisonTimer = 0; 
         this.poisonTick = 0;  
 
-        // --- 25. Ultimate Cooldown System (40s) ---
-        this.ultMaxCooldown = 40 * 60; // 40 seconds * 60 fps = 2400 frames
-        this.ultTimer = 0; // 0 = Ready
+        this.ultMaxCooldown = 40 * 60; 
+        this.ultTimer = 0; 
     }
 
     update() {
-        // --- 25. Update Cooldown ---
         if (this.ultTimer > 0) {
             this.ultTimer--;
         }
         
-        // Input for Ult
         if (keys.ult && !keys_last.ult && this.ultTimer <= 0) {
             this.activateUlt();
         }
 
         this.updateUltUI();
 
-        // Poison
         if (this.poisonTimer > 0) {
             this.poisonTimer--;
             this.poisonTick++;
@@ -331,7 +331,7 @@ class Player {
     }
 
     activateUlt() {
-        this.ultTimer = this.ultMaxCooldown; // Start cooldown
+        this.ultTimer = this.ultMaxCooldown; 
         showNotification("ULTIMATE RELEASED!");
         
         const startX = this.x + this.w/2;
@@ -343,8 +343,6 @@ class Player {
     }
 
     updateUltUI() {
-        // Calculate percentage for UI fill (100% = Ready, 0% = Just used)
-        // If timer is 0, it's 100% ready.
         let pct = 0;
         if (this.ultTimer <= 0) {
             pct = 100;
@@ -544,7 +542,7 @@ class Enemy {
         }
         else if (type === 'DRONE') {
             this.w = 30; this.h = 30;
-            baseHp = 30;
+            baseHp = 20;
             baseSpd = 2.0;
             this.color = '#e74c3c';
             this.scoreVal = 80;
@@ -623,9 +621,10 @@ class Enemy {
             }
         } 
         else if (this.type === 'DRONE') {
-            enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, dmg, false, false));
+            // --- 27. Fix Drone Damage 5 ---
+            enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, 5, false, false));
             setTimeout(() => {
-                 enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, dmg, false, false));
+                 enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, 5, false, false));
             }, 200);
         }
         else if (this.type === 'POISON') {
@@ -770,9 +769,10 @@ class Boss {
                     let px = player.x + player.w/2;
                     let py = player.y + player.h/2;
                     let dist = Math.sqrt((px-centerBx)**2 + (py-centerBy)**2);
-                    // --- 26. Instant Death on Explosion Hit ---
+                    
+                    // --- 26. Instant Kill on Explosion ---
                     if (dist < 200) { 
-                        player.takeDamage(9999); // Instant Kill
+                        player.takeDamage(9999); 
                     }
                     
                     this.isExploding = false;
@@ -858,11 +858,11 @@ class Boss {
             this.spikeCount = 3;
             showNotification("⚠️ GROUND TREMOR DETECTED! ⚠️");
         } else if (this.bossType === 'VIPER') {
-            // --- 27. Viper Windmill Laser Setup ---
+            // --- 27. VIPER Windmill Ult ---
             this.state = 'LASER_WINDMILL';
-            this.timer = 300; // 5 Seconds
+            this.timer = 300; // 5 Sec
             this.laserAngle = 0;
-            showNotification("⚠️ LASER SYSTEM ACTIVATED! ⚠️");
+            showNotification("⚠️ LASER OVERLOAD DETECTED! ⚠️");
         } else {
             this.state = 'PREPARE'; 
             this.timer = 180; 
@@ -898,61 +898,40 @@ class Boss {
             return;
         }
 
-        // --- 27. VIPER ULT (Laser Windmill) ---
+        // --- 27. VIPER ULT LOGIC ---
         if (this.bossType === 'VIPER') {
-            this.laserAngle += 0.03; // Rotate speed
+            this.laserAngle += 0.03; 
             
-            // Check Hit logic periodically (every 6 frames = 10 times/sec = 10dps)
+            // Check Hit every 6 frames (10 dps)
             if (frames % 6 === 0) {
-                // Determine origin
                 let cx = this.x + this.w/2;
                 let cy = this.y + this.h/2;
                 let startOffset = 10;
-                let maxLen = 1000;
+                let maxLen = 2000;
                 
-                // 5 Lasers
                 for (let i = 0; i < 5; i++) {
                     let theta = this.laserAngle + (i * (Math.PI * 2 / 5));
                     
-                    // Start point
                     let lx1 = cx + Math.cos(theta) * startOffset;
                     let ly1 = cy + Math.sin(theta) * startOffset;
                     
-                    // End point (initially max length)
                     let lx2 = cx + Math.cos(theta) * maxLen;
                     let ly2 = cy + Math.sin(theta) * maxLen;
 
-                    // --- Platform Collision Logic (Raycast Sim) ---
-                    // Simple check: iterate platforms, intersect line-rect?
-                    // To keep it performant, we just check center points or simplify
-                    // A proper line intersection is better.
+                    // Platform Blocking
                     let closestDist = maxLen;
-                    
                     platforms.forEach(p => {
-                        // Check if line intersects platform rect. 
-                        // Simplified: Check intersection with platform bounding box center/radius approx
-                        // For exactness, we need proper line clipping.
-                        // Let's use a simpler "midpoint" check for now or basic clipping
-                        // If center of platform is close to line?
-                        // Let's implement basic ray-rect intersection if possible or simple distance check
-                        // For stability, let's just check if the beam passes through the player RECT first.
-                        // Platform blocking is requested.
-                        
-                        // We will simplify: If line hits platform, cut length.
-                        // Check intersection with platform edges.
                         let hit = lineRectCollide(lx1, ly1, lx2, ly2, p.x, p.y, p.w, p.h);
                         if (hit && hit.dist < closestDist) {
                             closestDist = hit.dist;
                         }
                     });
-
-                    // Update End point based on collision
+                    
                     lx2 = cx + Math.cos(theta) * closestDist;
                     ly2 = cy + Math.sin(theta) * closestDist;
 
-                    // Check Player Collision
                     if (lineRectCollide(lx1, ly1, lx2, ly2, player.x, player.y, player.w, player.h)) {
-                        player.takeDamage(1); // 1 dmg per tick (6 frames) -> 10 dps
+                        player.takeDamage(1); 
                     }
                 }
             }
@@ -964,7 +943,7 @@ class Boss {
             return;
         }
 
-        // NEXUS ULT
+        // NEXUS
         if (this.state === 'PREPARE') {
             if (this.timer <= 0) {
                 this.state = 'EXECUTE';
@@ -1001,9 +980,9 @@ class Boss {
                 let cx = this.x + this.w/2;
                 let cy = this.y + this.h/2;
                 let startOffset = 10;
-                let maxLen = 1000;
+                let maxLen = 2000;
 
-                ctx.lineWidth = 30; // 30px Width
+                ctx.lineWidth = 30; // 30px width
                 ctx.lineCap = 'round';
                 
                 for (let i = 0; i < 5; i++) {
@@ -1013,7 +992,6 @@ class Boss {
                     let lx2 = cx + Math.cos(theta) * maxLen;
                     let ly2 = cy + Math.sin(theta) * maxLen;
 
-                    // Re-calc collision for drawing length
                     let closestDist = maxLen;
                     platforms.forEach(p => {
                         let hit = lineRectCollide(lx1, ly1, lx2, ly2, p.x, p.y, p.w, p.h);
@@ -1025,19 +1003,19 @@ class Boss {
                     lx2 = cx + Math.cos(theta) * closestDist;
                     ly2 = cy + Math.sin(theta) * closestDist;
 
-                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)'; // Outer glow
+                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
                     ctx.beginPath();
                     ctx.moveTo(lx1, ly1);
                     ctx.lineTo(lx2, ly2);
                     ctx.stroke();
                     
-                    ctx.lineWidth = 10; // Inner core
+                    ctx.lineWidth = 10; 
                     ctx.strokeStyle = '#fff';
                     ctx.beginPath();
                     ctx.moveTo(lx1, ly1);
                     ctx.lineTo(lx2, ly2);
                     ctx.stroke();
-                    ctx.lineWidth = 30; // Reset for next
+                    ctx.lineWidth = 30; 
                 }
             }
             else if (this.bossType === 'NEXUS') {
@@ -1160,6 +1138,66 @@ class Boss {
     }
 }
 
+// --- Helper: Line to Rect Collision for Laser ---
+function lineRectCollide(x1, y1, x2, y2, rx, ry, rw, rh) {
+    let u1 = lineLine(x1, y1, x2, y2, rx, ry, rx+rw, ry);
+    let u2 = lineLine(x1, y1, x2, y2, rx, ry+rh, rx+rw, ry+rh);
+    let u3 = lineLine(x1, y1, x2, y2, rx, ry, rx, ry+rh);
+    let u4 = lineLine(x1, y1, x2, y2, rx+rw, ry, rx+rw, ry+rh);
+
+    let minU = 1.0;
+    if (u1 && u1 < minU) minU = u1;
+    if (u2 && u2 < minU) minU = u2;
+    if (u3 && u3 < minU) minU = u3;
+    if (u4 && u4 < minU) minU = u4;
+
+    if (minU < 1.0) {
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let dist = Math.sqrt(dx*dx + dy*dy) * minU;
+        return { dist: dist };
+    }
+    return null;
+}
+
+function lineLine(x1, y1, x2, y2, x3, y3, x4, y4) {
+    let uA = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    let uB = ((x2-x1)*(y1-y3) - (y2-y1)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    if (uA >= 0 && uA <= 1 && uB >= 0 && uB <= 1) {
+        return uA;
+    }
+    return null;
+}
+// --- Helper: Line to Rect Collision for Laser ---
+function lineRectCollide(x1, y1, x2, y2, rx, ry, rw, rh) {
+    let u1 = lineLine(x1, y1, x2, y2, rx, ry, rx+rw, ry);
+    let u2 = lineLine(x1, y1, x2, y2, rx, ry+rh, rx+rw, ry+rh);
+    let u3 = lineLine(x1, y1, x2, y2, rx, ry, rx, ry+rh);
+    let u4 = lineLine(x1, y1, x2, y2, rx+rw, ry, rx+rw, ry+rh);
+
+    let minU = 1.0;
+    if (u1 && u1 < minU) minU = u1;
+    if (u2 && u2 < minU) minU = u2;
+    if (u3 && u3 < minU) minU = u3;
+    if (u4 && u4 < minU) minU = u4;
+
+    if (minU < 1.0) {
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let dist = Math.sqrt(dx*dx + dy*dy) * minU;
+        return { dist: dist };
+    }
+    return null;
+}
+
+function lineLine(x1, y1, x2, y2, x3, y3, x4, y4) {
+    let uA = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    let uB = ((x2-x1)*(y1-y3) - (y2-y1)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    if (uA >= 0 && uA <= 1 && uB >= 0 && uB <= 1) {
+        return uA;
+    }
+    return null;
+}
 // --- Helper: Line to Rect Collision for Laser ---
 function lineRectCollide(x1, y1, x2, y2, rx, ry, rw, rh) {
     // Check if line intersects any of the 4 lines of the rect
