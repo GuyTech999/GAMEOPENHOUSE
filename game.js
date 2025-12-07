@@ -453,7 +453,7 @@ class Enemy {
         }
         
         this.lastShot = 0;
-        this.fireRate = Math.max(50, 160 - (wave * 5)); 
+        this.fireRate = Math.max(50, 160); 
         this.lastShot = frames + Math.random() * 100;
     }
     
