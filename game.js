@@ -124,7 +124,7 @@ function initWave() {
     // --- 17. Configure Spawn Limits & Timers ---
     
     // Soldier: 14 + 3 per wave
-    spawnConfig.soldier.max = 14 + ((wave - 1) * 3);
+    spawnConfig.soldier.max = 4 + ((wave - 1) * 2);
     spawnConfig.soldier.count = 0;
     spawnConfig.soldier.timer = 60; // Start spawning soon
 
@@ -184,7 +184,7 @@ class Player {
         this.y = floorY - this.h;
         this.vx = 0;
         this.vy = 0;
-        this.baseSpeed = 4.0;
+        this.baseSpeed = 4.5;
         this.speed = this.baseSpeed;
         this.jumpPower = -13; 
         this.color = '#3498db';
@@ -194,7 +194,7 @@ class Player {
         this.damage = 20; 
         this.gunLevel = 1;
         this.lastShot = 0;
-        this.fireRate = 15; 
+        this.fireRate = 20; 
         this.isGrounded = true;
         this.isCrouching = false;
         this.jumpCount = 0;
