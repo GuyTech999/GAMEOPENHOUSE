@@ -1,12 +1,12 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Final Version)
+ * Soldier Frontline: Operation Survival (Platform Distribution Fix)
  */
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- FPS Control Variables ---
+// --- FPS Control ---
 const fps = 60;
 const fpsInterval = 1000 / fps;
 let then = Date.now();
@@ -19,16 +19,20 @@ let highScore = localStorage.getItem('sf_highscore') || 0;
 let wave = 1;
 let frames = 0;
 
-// --- Wave & Timer System (Updated) ---
-const WAVE_DURATION = 40 * 60; // 40 วินาที * 60 FPS = 2400 frames
+// --- Wave & Spawning System ---
+const WAVE_DURATION = 40 * 60; // 40 วินาที
 let waveTimer = WAVE_DURATION;
-let upgradeSchedule = []; // อาเรย์เก็บเวลาที่จะดรอปปืน 3 ครั้ง
+
+// Schedules
+let upgradeSchedule = []; 
+let tankSchedule = [];      
+let shieldEnemySchedule = []; 
 
 // Environment
 let gravity = 0.6;
 let floorY = 0;
 
-// Weather (Fixed Cycle: 10s Clear / 5s Rain)
+// Weather
 let weather = 'CLEAR'; 
 const weatherCycleLength = 900; 
 
@@ -99,18 +103,35 @@ if (isMobile) {
     bindTouch('btn-shoot', 'mouse');
 }
 
-// --- Wave Management Function ---
+// --- Wave Init Function ---
 function initWave() {
     waveTimer = WAVE_DURATION;
     upgradeSchedule = [];
+    tankSchedule = [];
+    shieldEnemySchedule = [];
     
-    // สุ่มเวลา 3 ครั้งในช่วง 40 วินาที เพื่อดรอป UPGRADE
-    // สุ่มช่วงเฟรมที่ 200 ถึง 2200 (ไม่เกิดตอนเริ่มหรือจบพอดีเกินไป)
+    // 1. สุ่มเวลา Drop ปืน (3 ครั้ง)
     for (let i = 0; i < 3; i++) {
-        let randomFrame = Math.floor(Math.random() * (WAVE_DURATION - 400)) + 200;
-        upgradeSchedule.push(randomFrame);
+        upgradeSchedule.push(randomFrameInWave());
     }
-    // announceWave(wave); // เรียกแสดงผลตอนเริ่มเวฟใหม่
+
+    // 2. Wave 2+: Tank Enemy (3 ตัว)
+    if (wave >= 2) {
+        for (let i = 0; i < 3; i++) {
+            tankSchedule.push(randomFrameInWave());
+        }
+    }
+
+    // 3. Wave 5+: Shield Enemy (4 ตัว)
+    if (wave >= 5) {
+        for (let i = 0; i < 4; i++) {
+            shieldEnemySchedule.push(randomFrameInWave());
+        }
+    }
+}
+
+function randomFrameInWave() {
+    return Math.floor(Math.random() * (WAVE_DURATION - 400)) + 200;
 }
 
 // --- Classes ---
@@ -123,10 +144,15 @@ class Platform {
         this.h = 20;
     }
     draw() {
+        // Texture เดิม (สีเทา + ลายเหลือง)
         ctx.fillStyle = '#4a5568';
         ctx.fillRect(this.x, this.y, this.w, this.h);
+        
+        // Structure details
         ctx.fillStyle = '#2d3748';
         ctx.fillRect(this.x + 5, this.y + 5, this.w - 10, this.h - 10);
+        
+        // Hazard stripes (Warning)
         ctx.fillStyle = '#f1c40f';
         for(let i=0; i<this.w; i+=20) {
             ctx.fillRect(this.x + i, this.y + this.h - 5, 10, 5);
@@ -159,10 +185,24 @@ class Player {
         this.isCrouching = false;
         this.jumpCount = 0;
         this.maxJumps = 2;
+
+        this.poisonTimer = 0; 
+        this.poisonTick = 0;  
     }
 
     update() {
-        // Crouch Logic
+        if (this.poisonTimer > 0) {
+            this.poisonTimer--;
+            this.poisonTick++;
+            if (this.poisonTick >= 60) {
+                this.takeDamage(2); 
+                createParticles(this.x + this.w/2, this.y, 5, '#00ff00'); 
+                this.poisonTick = 0;
+            }
+        } else {
+            this.poisonTick = 0;
+        }
+
         if (keys.s) {
             if (!this.isCrouching) {
                 this.isCrouching = true;
@@ -179,12 +219,10 @@ class Player {
             }
         }
 
-        // Movement
         if (keys.a) { this.vx = -this.speed; }
         else if (keys.d) { this.vx = this.speed; }
         else { this.vx *= 0.8; }
 
-        // Double Jump
         const isSpaceNewlyPressed = keys.space && !keys_last.space;
         if (isSpaceNewlyPressed && !this.isCrouching) { 
             if (this.jumpCount < this.maxJumps) {
@@ -197,12 +235,10 @@ class Player {
             }
         } 
         
-        // Physics
         this.vy += gravity;
         this.x += this.vx;
         this.y += this.vy;
 
-        // Floor Collision
         if (this.y + this.h > floorY) {
             this.y = floorY - this.h;
             this.vy = 0;
@@ -210,7 +246,6 @@ class Player {
             this.jumpCount = 0; 
         }
 
-        // Platform Collision
         let onPlatform = false;
         platforms.forEach(p => {
             if (this.vy >= 0 && 
@@ -233,7 +268,6 @@ class Player {
         if (this.x < 0) this.x = 0;
         if (this.x > canvas.width - this.w) this.x = canvas.width - this.w;
 
-        // Shooting
         if (keys.mouse) {
             if (frames - this.lastShot > this.fireRate) {
                 this.shoot();
@@ -251,14 +285,14 @@ class Player {
         const vx = Math.cos(angle) * bulletSpeed;
         const vy = Math.sin(angle) * bulletSpeed;
         
-        bullets.push(new Bullet(startX, startY, vx, vy, this.damage, true));
+        bullets.push(new Bullet(startX, startY, vx, vy, this.damage, true, false));
     }
 
     draw() {
         ctx.save();
         ctx.translate(this.x, this.y);
 
-        ctx.fillStyle = this.color;
+        ctx.fillStyle = this.poisonTimer > 0 ? '#2ecc71' : this.color;
         ctx.fillRect(0, 0, this.w, this.h);
 
         ctx.fillStyle = '#f1c40f';
@@ -274,6 +308,12 @@ class Player {
             ctx.beginPath();
             ctx.arc(this.w/2, this.h/2, this.w, 0, Math.PI*2);
             ctx.stroke();
+        }
+
+        if (this.poisonTimer > 0) {
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '12px Arial';
+            ctx.fillText("POISON", 0, -10);
         }
 
         ctx.restore();
@@ -306,10 +346,17 @@ class Player {
         
         if (this.hp <= 0) endGame();
     }
+    
+    applyPoison() {
+        if (this.shield <= 0) { 
+            this.poisonTimer = 600; 
+            showNotification("POISONED!");
+        }
+    }
 }
 
 class Bullet {
-    constructor(x, y, vx, vy, dmg, isPlayer) {
+    constructor(x, y, vx, vy, dmg, isPlayer, isPoison) {
         this.x = x;
         this.y = y;
         this.vx = vx;
@@ -317,6 +364,7 @@ class Bullet {
         this.r = 5;
         this.damage = dmg;
         this.isPlayer = isPlayer;
+        this.isPoison = isPoison || false;
         this.active = true;
     }
     update() {
@@ -327,7 +375,9 @@ class Bullet {
         }
     }
     draw() {
-        ctx.fillStyle = this.isPlayer ? '#ffff00' : '#ff0000';
+        if (this.isPoison) ctx.fillStyle = '#00ff00';
+        else ctx.fillStyle = this.isPlayer ? '#ffff00' : '#ff0000';
+        
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
         ctx.fill();
@@ -337,20 +387,57 @@ class Bullet {
 class Enemy {
     constructor(type) {
         this.type = type; 
-        this.w = type === 'SOLDIER' ? 40 : 30;
-        this.h = type === 'SOLDIER' ? 70 : 30;
+        
+        this.shield = 0; 
+        
+        if (type === 'TANK') { 
+            this.w = 60; this.h = 90;
+            this.hp = 400; 
+            this.speed = 0.5; 
+            this.color = '#555'; 
+            this.scoreVal = 300;
+        } 
+        else if (type === 'POISON') { 
+            this.w = 40; this.h = 70;
+            this.hp = 50 + (wave * 10);
+            this.speed = 1.5;
+            this.color = '#006400'; 
+            this.scoreVal = 150;
+        }
+        else if (type === 'SHIELDED') { 
+            this.w = 45; this.h = 75;
+            this.hp = 60 + (wave * 10);
+            this.shield = 150; 
+            this.speed = 1.0;
+            this.color = '#34495e';
+            this.scoreVal = 200;
+        }
+        else if (type === 'DRONE') {
+            this.w = 30; this.h = 30;
+            this.hp = 20 + (wave * 5);
+            this.speed = 2.0;
+            this.color = '#e74c3c';
+            this.scoreVal = 80;
+        }
+        else { 
+            this.w = 40; this.h = 70;
+            this.hp = 30 + (wave * 10);
+            this.speed = 1.0 + (wave * 0.1);
+            this.color = '#2ecc71';
+            this.scoreVal = 50;
+        }
+
         this.x = canvas.width + 50;
-        this.y = type === 'SOLDIER' ? floorY - this.h : 50 + Math.random() * (floorY - 250);
+        if (type === 'DRONE') {
+            this.y = 50 + Math.random() * (floorY - 250);
+        } else {
+            this.y = floorY - this.h;
+        }
         
-        let baseHp = type === 'SOLDIER' ? 30 : 20;
-        this.hp = baseHp + (wave * 15);
-        
-        this.speed = type === 'SOLDIER' ? 1.0 + (wave * 0.1) : 2.0 + (wave * 0.1);
-        
-        this.color = type === 'SOLDIER' ? '#2ecc71' : '#e74c3c';
         this.lastShot = 0;
         this.fireRate = Math.max(60, 150 - (wave * 5)); 
     }
+    
     update() {
         this.x -= this.speed;
 
@@ -361,21 +448,48 @@ class Enemy {
                 let angle = Math.atan2(targetY - (this.y + this.h/2), targetX - this.x);
                 let speed = 5; 
                 let dmg = 10 + (wave * 2); 
-                enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*speed, Math.sin(angle)*speed, dmg, false));
+                
+                let isPoison = (this.type === 'POISON');
+                
+                enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*speed, Math.sin(angle)*speed, dmg, false, isPoison));
                 this.lastShot = frames + Math.random() * 50;
             }
         }
     }
+    
     draw() {
         ctx.fillStyle = this.color;
-        if (this.type === 'SOLDIER') {
-            ctx.fillRect(this.x, this.y, this.w, this.h);
-            ctx.fillStyle = '#fff'; 
-            ctx.fillRect(this.x - 5, this.y + 10, 10, 5); 
-        } else {
+        
+        if (this.type === 'DRONE') {
             ctx.beginPath();
             ctx.arc(this.x + this.w/2, this.y + this.h/2, this.w/2, 0, Math.PI*2);
             ctx.fill();
+        } else {
+            ctx.fillRect(this.x, this.y, this.w, this.h);
+            ctx.fillStyle = '#fff'; 
+            ctx.fillRect(this.x - 5, this.y + 10, 10, 5); 
+        }
+        
+        if (this.shield > 0) {
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(this.x + this.w/2, this.y + this.h/2, this.w, 0, Math.PI*2);
+            ctx.stroke();
+        }
+    }
+    
+    takeDamage(amount) {
+        if (this.shield > 0) {
+            this.shield -= amount;
+            createParticles(this.x + this.w/2, this.y + this.h/2, 2, '#00ffff');
+            if (this.shield < 0) {
+                this.hp += this.shield; 
+                this.shield = 0;
+            }
+        } else {
+            this.hp -= amount;
+            createParticles(this.x + this.w/2, this.y + this.h/2, 2, '#fff');
         }
     }
 }
@@ -465,10 +579,8 @@ class Boss {
             boss = null;
             score += 1000 + (wave * 500);
             
-            // --- Boss Killed: Next Wave ---
             wave++;
             
-            // Spawn reward items
             items.push(new Item(this.x, floorY - 30, 'HEAL'));
             items.push(new Item(this.x + 40, floorY - 30, 'SCORE'));
             
@@ -477,7 +589,7 @@ class Boss {
             updateHUD();
             
             announceWave(wave);
-            initWave(); // Reset timer for new wave
+            initWave(); 
         }
     }
 }
@@ -563,16 +675,28 @@ function createParticles(x, y, count, color) {
 function spawnEnemy() {
     if (boss) return; 
     enemySpawnTimer--;
+    
     if (enemySpawnTimer <= 0) {
-        let type = Math.random() > 0.7 ? 'DRONE' : 'SOLDIER';
+        let r = Math.random();
+        let type;
+        
+        if (wave >= 3 && r < 0.2) {
+            type = 'POISON';
+        } else {
+            type = (r > 0.7) ? 'DRONE' : 'SOLDIER';
+        }
+        
         enemies.push(new Enemy(type));
+        
         let baseDelay = Math.max(60, 200 - (wave * 10)); 
         enemySpawnTimer = baseDelay + Math.random() * 60; 
     }
 }
 
-function spawnAirdrop() {
-    // 1. General Airdrop (Heal, Shield, Score) - Every 15s
+function spawnSpecialEvents() {
+    if (boss) return;
+
+    // 1. General Airdrop
     if (frames > 0 && frames % 900 === 0) { 
         let rand = Math.random();
         let type = 'SCORE';
@@ -584,15 +708,23 @@ function spawnAirdrop() {
         showNotification("SUPPLIES INCOMING!");
     }
 
-    // 2. Scheduled UPGRADE Airdrop (Exactly 3 per wave)
-    if (!boss && upgradeSchedule.length > 0) {
-        // เช็คว่า waveTimer ตรงกับที่กำหนดไว้ไหม (ใช้ <= เพราะ waveTimer นับถอยหลัง)
-        // เพื่อความชัวร์เราจะเช็คว่า waveTimer ตรงกับค่าในอาเรย์ไหม
-        if (upgradeSchedule.includes(waveTimer)) {
-             let x = 50 + Math.random() * (canvas.width - 100);
-             items.push(new Item(x, -50, 'UPGRADE'));
-             showNotification("WEAPON DROP!");
-        }
+    // 2. Scheduled UPGRADE Airdrop
+    if (upgradeSchedule.includes(waveTimer)) {
+         let x = 50 + Math.random() * (canvas.width - 100);
+         items.push(new Item(x, -50, 'UPGRADE'));
+         showNotification("WEAPON DROP!");
+    }
+
+    // 3. Scheduled TANK Enemy
+    if (tankSchedule.includes(waveTimer)) {
+        enemies.push(new Enemy('TANK'));
+        showNotification("HEAVY ENEMY!");
+    }
+
+    // 4. Scheduled SHIELD Enemy
+    if (shieldEnemySchedule.includes(waveTimer)) {
+        enemies.push(new Enemy('SHIELDED'));
+        showNotification("SHIELDED UNIT!");
     }
 }
 
@@ -658,12 +790,13 @@ function checkCollisions() {
             let e = enemies[j];
             if (b.isPlayer && b.x > e.x && b.x < e.x + e.w &&
                 b.y > e.y && b.y < e.y + e.h) {
-                e.hp -= player.damage;
+                
+                e.takeDamage(player.damage); 
+                
                 b.active = false;
-                createParticles(b.x, b.y, 3, '#0f0');
                 if (e.hp <= 0) {
                     enemies.splice(j, 1);
-                    score += 50 + (wave * 10);
+                    score += e.scoreVal;
                 }
                 break;
             }
@@ -674,7 +807,10 @@ function checkCollisions() {
         let b = enemyBullets[i];
         if (b.x > player.x && b.x < player.x + player.w &&
             b.y > player.y && b.y < player.y + player.h) {
+            
             player.takeDamage(b.damage);
+            if (b.isPoison) player.applyPoison(); 
+            
             b.active = false;
         }
     }
@@ -703,7 +839,6 @@ function updateHUD() {
     document.getElementById('gun-level').innerText = player.gunLevel;
     document.getElementById('gun-dmg').innerText = player.damage;
     
-    // แสดงเวลา Wave หรือ Boss
     if (boss) {
          document.getElementById('wave-display').innerText = `WAVE ${wave} (BOSS!)`;
          document.getElementById('wave-display').style.color = 'red';
@@ -749,17 +884,14 @@ function gameLoop() {
 
         frames++;
         
-        // --- Wave Logic Update ---
         if (!boss) {
             waveTimer--;
             if (waveTimer <= 0) {
-                // Time's up! Spawn Boss
                 boss = new Boss();
                 showNotification("WARNING: BOSS SPAWNED!");
             }
         }
 
-        // Render BG
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         let grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
         grd.addColorStop(0, "#2c3e50");
@@ -808,7 +940,7 @@ function gameLoop() {
             spawnEnemy();
         }
 
-        spawnAirdrop();
+        spawnSpecialEvents(); 
         handleWeather();
         checkCollisions();
         updateHUD();
@@ -838,18 +970,28 @@ function startGame() {
     weather = 'CLEAR';
     enemySpawnTimer = 0;
     
-    // Platforms
-    platforms.push(new Platform(150, floorY - 150, 200));
-    platforms.push(new Platform(500, floorY - 150, 200));
-    platforms.push(new Platform(300, floorY - 300, 150));
-    platforms.push(new Platform(700, floorY - 300, 200));
-    platforms.push(new Platform(100, floorY - 450, 150));
-    platforms.push(new Platform(500, floorY - 500, 250));
+    // --- Responsive Platform Layout ---
+    let w = canvas.width;
+    
+    // Left Zone (anchored left)
+    platforms.push(new Platform(w * 0.05, floorY - 120, 180)); 
+    platforms.push(new Platform(w * 0.02, floorY - 350, 250));
+    platforms.push(new Platform(w * 0.08, floorY - 520, 150));
+    
+    // Middle Zone (Distributed)
+    platforms.push(new Platform(w * 0.35, floorY - 220, 200));
+    platforms.push(new Platform(w * 0.50, floorY - 420, 180));
+    platforms.push(new Platform(w * 0.45, floorY - 600, 150));
+    
+    // Right Zone (Distributed to right side)
+    platforms.push(new Platform(w * 0.70, floorY - 300, 200));
+    platforms.push(new Platform(w * 0.82, floorY - 500, 180));
+    platforms.push(new Platform(w * 0.75, floorY - 150, 180)); // Added low right
 
     document.getElementById('boss-hud').style.display = 'none';
     document.getElementById('score-container').style.display = 'block';
 
-    initWave(); // Setup first wave timer & upgrades
+    initWave(); 
     updateHUD();
     gameLoop();
 }
