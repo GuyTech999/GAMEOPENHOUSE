@@ -1,6 +1,6 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Tutorial & Forced Read Update)
+ * Soldier Frontline: Operation Survival (Cooldowns, Instant Death, Laser Physics)
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -20,12 +20,11 @@ let wave = 1;
 let frames = 0;
 
 // --- Wave & Spawning System ---
-const WAVE_DURATION = 40 * 60; // 40 วินาที
+const WAVE_DURATION = 40 * 60; 
 let waveTimer = WAVE_DURATION;
 let healDropsInWave = 0; 
 let fireRateDropsInWave = 0;
 
-// --- Spawn Configuration ---
 let spawnConfig = {
     soldier: { count: 0, max: 0, timer: 0 },
     drone:   { count: 0, max: 0, timer: 0 },
@@ -34,7 +33,6 @@ let spawnConfig = {
     shield:  { count: 0, max: 0, timer: 0 }
 };
 
-// Schedules
 let upgradeSchedule = []; 
 
 // Environment
@@ -56,14 +54,18 @@ let particles = [];
 let items = [];
 let platforms = []; 
 let boss = null;
+let spikes = []; 
+
+// Spawn Timers
+let enemySpawnTimer = 0;
 
 // Inputs
 const mousePos = { x: 0, y: 0 };
 const keys = {
-    a: false, d: false, w: false, s: false, space: false, mouse: false
+    a: false, d: false, w: false, s: false, space: false, mouse: false, ult: false
 };
 const keys_last = {
-    a: false, d: false, w: false, s: false, space: false, mouse: false
+    a: false, d: false, w: false, s: false, space: false, mouse: false, ult: false
 };
 
 // Setup Canvas
@@ -81,12 +83,14 @@ window.addEventListener('keydown', e => {
     if(e.key === 'd' || e.key === 'D') keys.d = true;
     if(e.key === 's' || e.key === 'S') keys.s = true; 
     if(e.key === 'w' || e.key === 'W' || e.key === ' ') keys.space = true;
+    if(e.key === 'e' || e.key === 'E') keys.ult = true;
 });
 window.addEventListener('keyup', e => {
     if(e.key === 'a' || e.key === 'A') keys.a = false;
     if(e.key === 'd' || e.key === 'D') keys.d = false;
     if(e.key === 's' || e.key === 'S') keys.s = false; 
     if(e.key === 'w' || e.key === 'W' || e.key === ' ') keys.space = false;
+    if(e.key === 'e' || e.key === 'E') keys.ult = false;
 });
 window.addEventListener('mousedown', () => keys.mouse = true);
 window.addEventListener('mouseup', () => keys.mouse = false);
@@ -109,22 +113,21 @@ if (isMobile) {
     bindTouch('btn-crouch', 's');
     bindTouch('btn-jump', 'space');
     bindTouch('btn-shoot', 'mouse');
+    bindTouch('btn-ult', 'ult');
 }
 
-// --- Tutorial Logic (NEW) ---
+// --- 28. Tutorial Logic (5 Seconds) ---
 function showTutorial() {
     document.getElementById('start-screen').classList.add('hidden');
     document.getElementById('tutorial-screen').classList.remove('hidden');
     
     let btn = document.getElementById('btn-start-game');
-    let timeLeft = 10;
+    let timeLeft = 5; // Reduced to 5s
     
-    // Reset button state
     btn.disabled = true;
     btn.classList.add('disabled');
     btn.innerText = `READ MANUAL (${timeLeft})`;
     
-    // Countdown Timer
     let timer = setInterval(() => {
         timeLeft--;
         if (timeLeft <= 0) {
@@ -138,7 +141,6 @@ function showTutorial() {
     }, 1000);
 }
 
-// --- Wave Init ---
 function initWave() {
     waveTimer = WAVE_DURATION;
     upgradeSchedule = [];
@@ -149,7 +151,6 @@ function initWave() {
         upgradeSchedule.push(randomFrameInWave());
     }
 
-    // Spawn Limits
     spawnConfig.soldier.max = 14 + ((wave - 1) * 3);
     spawnConfig.soldier.count = 0;
     spawnConfig.soldier.timer = 60; 
@@ -224,9 +225,26 @@ class Player {
 
         this.poisonTimer = 0; 
         this.poisonTick = 0;  
+
+        // --- 25. Ultimate Cooldown System (40s) ---
+        this.ultMaxCooldown = 40 * 60; // 40 seconds * 60 fps = 2400 frames
+        this.ultTimer = 0; // 0 = Ready
     }
 
     update() {
+        // --- 25. Update Cooldown ---
+        if (this.ultTimer > 0) {
+            this.ultTimer--;
+        }
+        
+        // Input for Ult
+        if (keys.ult && !keys_last.ult && this.ultTimer <= 0) {
+            this.activateUlt();
+        }
+
+        this.updateUltUI();
+
+        // Poison
         if (this.poisonTimer > 0) {
             this.poisonTimer--;
             this.poisonTick++;
@@ -312,11 +330,46 @@ class Player {
         }
     }
 
+    activateUlt() {
+        this.ultTimer = this.ultMaxCooldown; // Start cooldown
+        showNotification("ULTIMATE RELEASED!");
+        
+        const startX = this.x + this.w/2;
+        const startY = this.y + this.h/2;
+        const angle = Math.atan2(mousePos.y - startY, mousePos.x - startX);
+        const speed = 8;
+        
+        bullets.push(new Bullet(startX, startY, Math.cos(angle)*speed, Math.sin(angle)*speed, 100, true, false, true));
+    }
+
+    updateUltUI() {
+        // Calculate percentage for UI fill (100% = Ready, 0% = Just used)
+        // If timer is 0, it's 100% ready.
+        let pct = 0;
+        if (this.ultTimer <= 0) {
+            pct = 100;
+            document.getElementById('ult-text').innerText = "READY";
+        } else {
+            pct = 100 - ((this.ultTimer / this.ultMaxCooldown) * 100);
+            let secondsLeft = Math.ceil(this.ultTimer / 60);
+            document.getElementById('ult-text').innerText = secondsLeft + "s";
+        }
+
+        document.getElementById('ult-fill').style.height = pct + "%";
+        
+        if (pct >= 100) {
+            document.getElementById('ult-fill').style.background = "#00ff00"; 
+            document.querySelector('.ult-circle').style.borderColor = "#00ff00";
+        } else {
+            document.getElementById('ult-fill').style.background = "linear-gradient(0deg, #ff8c00, #ff4500)";
+            document.querySelector('.ult-circle').style.borderColor = "#333";
+        }
+    }
+
     shoot() {
         const bulletSpeed = 10;
         const startX = this.x + this.w/2;
         const startY = this.y + this.h/2;
-        
         const angle = Math.atan2(mousePos.y - startY, mousePos.x - startX);
         const vx = Math.cos(angle) * bulletSpeed;
         const vy = Math.sin(angle) * bulletSpeed;
@@ -392,31 +445,70 @@ class Player {
 }
 
 class Bullet {
-    constructor(x, y, vx, vy, dmg, isPlayer, isPoison) {
+    constructor(x, y, vx, vy, dmg, isPlayer, isPoison, isExplosive) {
         this.x = x;
         this.y = y;
         this.vx = vx;
         this.vy = vy;
-        this.r = 5;
+        this.r = isExplosive ? 10 : 5;
         this.damage = dmg;
         this.isPlayer = isPlayer;
         this.isPoison = isPoison || false;
+        this.isExplosive = isExplosive || false; 
         this.active = true;
     }
     update() {
         this.x += this.vx;
         this.y += this.vy;
+        
+        if (this.isExplosive) {
+            if (this.y > floorY || this.x < 0 || this.x > canvas.width) {
+                this.explode();
+                this.active = false;
+            }
+        }
+
         if (this.x < -50 || this.x > canvas.width + 50 || this.y < -50 || this.y > canvas.height + 50) {
             this.active = false;
         }
     }
     draw() {
-        if (this.isPoison) ctx.fillStyle = '#00ff00';
+        if (this.isExplosive) {
+            ctx.fillStyle = '#ff4500';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+        else if (this.isPoison) ctx.fillStyle = '#00ff00';
         else ctx.fillStyle = this.isPlayer ? '#ffff00' : '#ff0000';
         
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
         ctx.fill();
+    }
+
+    explode() {
+        createParticles(this.x, this.y, 20, '#ff4500');
+        let radius = 150;
+        enemies.forEach(e => {
+            let dx = e.x + e.w/2 - this.x;
+            let dy = e.y + e.h/2 - this.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < radius) {
+                e.takeDamage(this.damage); 
+            }
+        });
+        if (boss) {
+            let dx = boss.x + boss.w/2 - this.x;
+            let dy = boss.y + boss.h/2 - this.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < radius) {
+                boss.takeDamage(this.damage);
+            }
+        }
     }
 }
 
@@ -452,7 +544,7 @@ class Enemy {
         }
         else if (type === 'DRONE') {
             this.w = 30; this.h = 30;
-            baseHp = 20;
+            baseHp = 30;
             baseSpd = 2.0;
             this.color = '#e74c3c';
             this.scoreVal = 80;
@@ -631,6 +723,17 @@ class Boss {
         this.ultCharge = 0;
         this.ultMaxCharge = 1000;
 
+        // Iron Clad
+        this.hitCount = 0;
+        this.isStunned = false;
+        this.stunTimer = 0;
+        this.isExploding = false; 
+        this.explosionTimer = 0;
+        this.spikeCount = 0; 
+
+        // Viper
+        this.laserAngle = 0;
+
         document.getElementById('boss-hud').style.display = 'block';
         document.getElementById('score-container').style.display = 'none'; 
         updateBossHUD(this.hp, this.maxHp);
@@ -645,6 +748,40 @@ class Boss {
                 this.pickNextAction();
             }
             return;
+        }
+
+        if (this.bossType === 'IRON CLAD') {
+            if (this.isStunned) {
+                this.stunTimer--;
+                if (this.stunTimer <= 0) {
+                    this.isStunned = false;
+                    this.hitCount = 0; 
+                    this.pickNextAction();
+                }
+                return; 
+            }
+
+            if (this.isExploding) {
+                this.explosionTimer--;
+                if (this.explosionTimer <= 0) {
+                    createParticles(this.x + this.w/2, this.y + this.h/2, 50, '#ff4500');
+                    let centerBx = this.x + this.w/2;
+                    let centerBy = this.y + this.h/2;
+                    let px = player.x + player.w/2;
+                    let py = player.y + player.h/2;
+                    let dist = Math.sqrt((px-centerBx)**2 + (py-centerBy)**2);
+                    // --- 26. Instant Death on Explosion Hit ---
+                    if (dist < 200) { 
+                        player.takeDamage(9999); // Instant Kill
+                    }
+                    
+                    this.isExploding = false;
+                    this.isStunned = true;
+                    this.stunTimer = 300; 
+                    showNotification("BOSS STUNNED! ATTACK NOW!");
+                }
+                return; 
+            }
         }
 
         if (this.phase === 'ULTIMATE') {
@@ -713,13 +850,121 @@ class Boss {
 
     startUltimate() {
         this.phase = 'ULTIMATE';
-        this.state = 'PREPARE'; 
-        this.timer = 180; 
-        showNotification("⚠️ WARNING: GET TO HIGH GROUND! ⚠️");
+        this.ultCharge = 0; 
+        
+        if (this.bossType === 'IRON CLAD') {
+            this.state = 'SPIKE_WARN';
+            this.timer = 60; 
+            this.spikeCount = 3;
+            showNotification("⚠️ GROUND TREMOR DETECTED! ⚠️");
+        } else if (this.bossType === 'VIPER') {
+            // --- 27. Viper Windmill Laser Setup ---
+            this.state = 'LASER_WINDMILL';
+            this.timer = 300; // 5 Seconds
+            this.laserAngle = 0;
+            showNotification("⚠️ LASER SYSTEM ACTIVATED! ⚠️");
+        } else {
+            this.state = 'PREPARE'; 
+            this.timer = 180; 
+            showNotification("⚠️ WARNING: GET TO HIGH GROUND! ⚠️");
+        }
     }
 
     handleUltimate() {
         this.timer--;
+
+        if (this.bossType === 'IRON CLAD') {
+            if (this.state === 'SPIKE_WARN') {
+                if (this.timer <= 0) {
+                    let spikeX = player.x;
+                    let spikeY = floorY; 
+                    spikes.push({ x: spikeX, y: spikeY, w: 40, h: 100, timer: 30 }); 
+                    
+                    this.state = 'SPIKE_COOLDOWN';
+                    this.timer = 120; 
+                    this.spikeCount--;
+                }
+            } else if (this.state === 'SPIKE_COOLDOWN') {
+                if (this.timer <= 0) {
+                    if (this.spikeCount > 0) {
+                        this.state = 'SPIKE_WARN';
+                        this.timer = 60; 
+                    } else {
+                        this.phase = 'ACTION';
+                        this.pickNextAction();
+                    }
+                }
+            }
+            return;
+        }
+
+        // --- 27. VIPER ULT (Laser Windmill) ---
+        if (this.bossType === 'VIPER') {
+            this.laserAngle += 0.03; // Rotate speed
+            
+            // Check Hit logic periodically (every 6 frames = 10 times/sec = 10dps)
+            if (frames % 6 === 0) {
+                // Determine origin
+                let cx = this.x + this.w/2;
+                let cy = this.y + this.h/2;
+                let startOffset = 10;
+                let maxLen = 1000;
+                
+                // 5 Lasers
+                for (let i = 0; i < 5; i++) {
+                    let theta = this.laserAngle + (i * (Math.PI * 2 / 5));
+                    
+                    // Start point
+                    let lx1 = cx + Math.cos(theta) * startOffset;
+                    let ly1 = cy + Math.sin(theta) * startOffset;
+                    
+                    // End point (initially max length)
+                    let lx2 = cx + Math.cos(theta) * maxLen;
+                    let ly2 = cy + Math.sin(theta) * maxLen;
+
+                    // --- Platform Collision Logic (Raycast Sim) ---
+                    // Simple check: iterate platforms, intersect line-rect?
+                    // To keep it performant, we just check center points or simplify
+                    // A proper line intersection is better.
+                    let closestDist = maxLen;
+                    
+                    platforms.forEach(p => {
+                        // Check if line intersects platform rect. 
+                        // Simplified: Check intersection with platform bounding box center/radius approx
+                        // For exactness, we need proper line clipping.
+                        // Let's use a simpler "midpoint" check for now or basic clipping
+                        // If center of platform is close to line?
+                        // Let's implement basic ray-rect intersection if possible or simple distance check
+                        // For stability, let's just check if the beam passes through the player RECT first.
+                        // Platform blocking is requested.
+                        
+                        // We will simplify: If line hits platform, cut length.
+                        // Check intersection with platform edges.
+                        let hit = lineRectCollide(lx1, ly1, lx2, ly2, p.x, p.y, p.w, p.h);
+                        if (hit && hit.dist < closestDist) {
+                            closestDist = hit.dist;
+                        }
+                    });
+
+                    // Update End point based on collision
+                    lx2 = cx + Math.cos(theta) * closestDist;
+                    ly2 = cy + Math.sin(theta) * closestDist;
+
+                    // Check Player Collision
+                    if (lineRectCollide(lx1, ly1, lx2, ly2, player.x, player.y, player.w, player.h)) {
+                        player.takeDamage(1); // 1 dmg per tick (6 frames) -> 10 dps
+                    }
+                }
+            }
+
+            if (this.timer <= 0) {
+                this.phase = 'ACTION';
+                this.pickNextAction();
+            }
+            return;
+        }
+
+        // NEXUS ULT
         if (this.state === 'PREPARE') {
             if (this.timer <= 0) {
                 this.state = 'EXECUTE';
@@ -745,16 +990,102 @@ class Boss {
     draw() {
         if (this.phase === 'ULTIMATE') {
             ctx.save();
-            if (this.state === 'PREPARE') {
-                ctx.fillStyle = (Math.floor(frames / 10) % 2 === 0) ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 255, 0, 0.3)';
-            } else {
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; 
+            
+            if (this.bossType === 'IRON CLAD' && this.state === 'SPIKE_WARN') {
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
+                ctx.fillRect(player.x - 20, floorY - 10, player.w + 40, 10);
+                ctx.fillRect(player.x, floorY - 200, player.w, 200);
             }
-            ctx.fillRect(0, floorY - 10, canvas.width, 100);
+            // --- 27. Draw Viper Lasers ---
+            else if (this.bossType === 'VIPER') {
+                let cx = this.x + this.w/2;
+                let cy = this.y + this.h/2;
+                let startOffset = 10;
+                let maxLen = 1000;
+
+                ctx.lineWidth = 30; // 30px Width
+                ctx.lineCap = 'round';
+                
+                for (let i = 0; i < 5; i++) {
+                    let theta = this.laserAngle + (i * (Math.PI * 2 / 5));
+                    let lx1 = cx + Math.cos(theta) * startOffset;
+                    let ly1 = cy + Math.sin(theta) * startOffset;
+                    let lx2 = cx + Math.cos(theta) * maxLen;
+                    let ly2 = cy + Math.sin(theta) * maxLen;
+
+                    // Re-calc collision for drawing length
+                    let closestDist = maxLen;
+                    platforms.forEach(p => {
+                        let hit = lineRectCollide(lx1, ly1, lx2, ly2, p.x, p.y, p.w, p.h);
+                        if (hit && hit.dist < closestDist) {
+                            closestDist = hit.dist;
+                        }
+                    });
+                    
+                    lx2 = cx + Math.cos(theta) * closestDist;
+                    ly2 = cy + Math.sin(theta) * closestDist;
+
+                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)'; // Outer glow
+                    ctx.beginPath();
+                    ctx.moveTo(lx1, ly1);
+                    ctx.lineTo(lx2, ly2);
+                    ctx.stroke();
+                    
+                    ctx.lineWidth = 10; // Inner core
+                    ctx.strokeStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.moveTo(lx1, ly1);
+                    ctx.lineTo(lx2, ly2);
+                    ctx.stroke();
+                    ctx.lineWidth = 30; // Reset for next
+                }
+            }
+            else if (this.bossType === 'NEXUS') {
+                if (this.state === 'PREPARE') {
+                    ctx.fillStyle = (Math.floor(frames / 10) % 2 === 0) ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 255, 0, 0.3)';
+                    ctx.fillRect(0, floorY - 10, canvas.width, 100);
+                } else if (this.state === 'EXECUTE') {
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; 
+                    ctx.fillRect(0, floorY - 10, canvas.width, 100);
+                }
+            }
             ctx.restore();
         }
 
-        ctx.fillStyle = this.color;
+        // Draw Spikes
+        ctx.fillStyle = '#5d4037'; 
+        for (let i = spikes.length - 1; i >= 0; i--) {
+            let s = spikes[i];
+            ctx.beginPath();
+            ctx.moveTo(s.x, s.y);
+            ctx.lineTo(s.x + s.w/2, s.y - s.h); 
+            ctx.lineTo(s.x + s.w, s.y);
+            ctx.fill();
+            
+            s.timer--;
+            if (s.timer > 0) {
+                if (player.x < s.x + s.w && player.x + player.w > s.x &&
+                    player.y + player.h > s.y - s.h) {
+                    player.takeDamage(20);
+                }
+            } else {
+                spikes.splice(i, 1);
+            }
+        }
+
+        if (this.bossType === 'IRON CLAD' && this.isExploding) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(this.x + this.w/2, this.y + this.h/2, 200, 0, Math.PI*2); 
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+            ctx.fill();
+            ctx.restore();
+        }
+
+        ctx.fillStyle = this.isStunned ? '#999' : this.color; 
         if (this.bossType === 'VIPER') {
             ctx.beginPath();
             ctx.moveTo(this.x + this.w/2, this.y);
@@ -772,6 +1103,12 @@ class Boss {
             ctx.fillRect(this.x - 10, this.y + 20, 10, this.h - 40);
         }
 
+        if (this.isStunned) {
+            ctx.fillStyle = 'yellow';
+            ctx.font = '20px Arial';
+            ctx.fillText("STUNNED!", this.x, this.y - 10);
+        }
+
         if (this.phase !== 'ULTIMATE') {
             let hpPct = this.ultCharge / this.ultMaxCharge;
             ctx.fillStyle = '#333';
@@ -786,6 +1123,20 @@ class Boss {
     }
 
     takeDamage(amount) {
+        if (this.bossType === 'IRON CLAD') {
+            if (this.isStunned) {
+                amount = 50; 
+            } else {
+                if (amount > 20) amount = 20; 
+                this.hitCount++;
+                if (this.hitCount >= 30 && !this.isExploding) {
+                    this.isExploding = true;
+                    this.explosionTimer = 120; 
+                    showNotification("BOSS OVERHEATING! GET BACK!");
+                }
+            }
+        }
+
         this.hp -= amount;
         updateBossHUD(this.hp, this.maxHp);
         createParticles(this.x + Math.random()*this.w, this.y + Math.random()*this.h, 5, '#fff');
@@ -807,6 +1158,43 @@ class Boss {
             initWave(); 
         }
     }
+}
+
+// --- Helper: Line to Rect Collision for Laser ---
+function lineRectCollide(x1, y1, x2, y2, rx, ry, rw, rh) {
+    // Check if line intersects any of the 4 lines of the rect
+    // Top
+    let u1 = lineLine(x1, y1, x2, y2, rx, ry, rx+rw, ry);
+    // Bottom
+    let u2 = lineLine(x1, y1, x2, y2, rx, ry+rh, rx+rw, ry+rh);
+    // Left
+    let u3 = lineLine(x1, y1, x2, y2, rx, ry, rx, ry+rh);
+    // Right
+    let u4 = lineLine(x1, y1, x2, y2, rx+rw, ry, rx+rw, ry+rh);
+
+    let minU = 1.0;
+    if (u1 && u1 < minU) minU = u1;
+    if (u2 && u2 < minU) minU = u2;
+    if (u3 && u3 < minU) minU = u3;
+    if (u4 && u4 < minU) minU = u4;
+
+    if (minU < 1.0) {
+        // Calculate distance
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let dist = Math.sqrt(dx*dx + dy*dy) * minU;
+        return { dist: dist };
+    }
+    return null;
+}
+
+function lineLine(x1, y1, x2, y2, x3, y3, x4, y4) {
+    let uA = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    let uB = ((x2-x1)*(y1-y3) - (y2-y1)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    if (uA >= 0 && uA <= 1 && uB >= 0 && uB <= 1) {
+        return uA;
+    }
+    return null;
 }
 
 class Item {
@@ -1079,6 +1467,7 @@ function handleWeather() {
 }
 
 function checkCollisions() {
+    // --- 23. Add Ult Gain on Kill Logic ---
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         if (!b.active) continue;
@@ -1100,13 +1489,16 @@ function checkCollisions() {
                 
                 e.takeDamage(player.damage); 
                 
-                b.active = false;
+                if (!b.isExplosive) b.active = false; // Explo bullets don't vanish on 1 hit
+                
                 if (e.hp <= 0) {
                     if (Math.random() < 0.15) { 
                          items.push(new Item(e.x, e.y, 'HEAL'));
                     }
                     enemies.splice(j, 1);
                     score += e.scoreVal;
+                    // Gain Ult Charge on Kill
+                    player.gainUlt(player.killUltGain);
                 }
                 break;
             }
@@ -1136,7 +1528,7 @@ function checkCollisions() {
             if (it.type === 'SCORE') { score += 500; }
             if (it.type === 'MAXHP') { player.maxHp += 5; player.hp += 5; showNotification("MAX HP INCREASED!"); }
             if (it.type === 'FIRERATE') { 
-                player.fireRate = Math.max(5, player.fireRate - 1); 
+                player.fireRate = Math.max(5, player.fireRate - 5); 
                 showNotification("RAPID FIRE!"); 
             }
             
@@ -1265,12 +1657,13 @@ function gameLoop() {
 
         keys_last.space = keys.space;
         keys_last.s = keys.s;
+        keys_last.ult = keys.ult; // Track ult key
     }
 }
 
 function startGame() {
     document.getElementById('start-screen').classList.add('hidden');
-    document.getElementById('tutorial-screen').classList.add('hidden'); // Hide tutorial if coming from there
+    document.getElementById('tutorial-screen').classList.add('hidden');
     document.getElementById('game-over-screen').classList.add('hidden');
     document.getElementById('high-score').innerText = highScore;
 
@@ -1288,6 +1681,7 @@ function startGame() {
     boss = null;
     weather = 'CLEAR';
     enemySpawnTimer = 0;
+    spikes = [];
     
     // --- Responsive Platform Layout ---
     let w = canvas.width;
@@ -1326,6 +1720,5 @@ function endGame() {
 }
 
 function resetGame() {
-    // Reset to start screen or restart directly? Let's restart directly via startGame
     startGame();
 }
