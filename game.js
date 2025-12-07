@@ -36,8 +36,16 @@ let items = [];
 let platforms = []; // Array for floating platforms
 let boss = null;
 
+// ... (โค้ดเดิมด้านบน)
 // Spawn Timers
 let enemySpawnTimer = 0;
+
+// --- ส่วนที่เพิ่มใหม่: ตัวแปรคุม FPS ---
+const fps = 60;
+const fpsInterval = 1000 / fps;
+let then = Date.now();
+let elapsed;
+// -----------------------------------
 
 // Inputs
 const keys = {
@@ -740,78 +748,91 @@ function announceWave(newWave) {
 function gameLoop() {
     if (gameState !== 'PLAYING') return;
 
-    frames++;
-    
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    let grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    grd.addColorStop(0, "#2c3e50");
-    grd.addColorStop(1, "#4a235a");
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw Platforms
-    platforms.forEach(p => p.draw());
-
-    ctx.fillStyle = '#212f3c';
-    ctx.fillRect(0, floorY, canvas.width, canvas.height - floorY);
-
-    player.update();
-    player.draw();
-
-    bullets.forEach((b, i) => {
-        b.update();
-        b.draw();
-        if (!b.active) bullets.splice(i, 1);
-    });
-
-    enemyBullets.forEach((b, i) => {
-        b.update();
-        b.draw();
-        if (!b.active) enemyBullets.splice(i, 1);
-    });
-
-    enemies.forEach((e, i) => {
-        e.update();
-        e.draw();
-        if (e.x < -100) enemies.splice(i, 1);
-    });
-
-    items.forEach(it => { it.update(); it.draw(); });
-
-    particles.forEach((p, i) => {
-        p.update();
-        p.draw();
-        if (p.life <= 0) particles.splice(i, 1);
-    });
-
-    // UPDATED BOSS LOGIC: Trigger based on Score
-    if (!boss && score >= nextBossScore) {
-        boss = new Boss();
-        showNotification("BOSS APPROACHING!");
-    }
-
-    if (boss) {
-        boss.update();
-        boss.draw();
-    } else {
-        spawnEnemy();
-    }
-
-    spawnAirdrop();
-    handleWeather();
-    checkCollisions();
-    updateHUD();
-
-    // *** FINAL STEP: Update last key states ***
-    keys_last.space = keys.space;
-    keys_last.s = keys.s;
-    keys_last.mouse = keys.mouse;
-    keys_last.a = keys.a;
-    keys_last.d = keys.d;
-    // ****************************************
-
+    // 1. เรียก Loop รอไว้ก่อน
     requestAnimationFrame(gameLoop);
+
+    // 2. คำนวณเวลา (Delta Time Check)
+    let now = Date.now();
+    elapsed = now - then;
+
+    // 3. ถ้าเวลาผ่านไปเกินกำหนด (เช่นเกิน 16.6ms สำหรับ 60fps) ค่อยรันเกม
+    if (elapsed > fpsInterval) {
+        
+        // ปรับเวลาให้ตรงรอบ เพื่อความลื่นไหล
+        then = now - (elapsed % fpsInterval);
+
+        // --- เริ่ม LOGIC เกมเดิม ---
+        frames++;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        let grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grd.addColorStop(0, "#2c3e50");
+        grd.addColorStop(1, "#4a235a");
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Platforms
+        platforms.forEach(p => p.draw());
+
+        ctx.fillStyle = '#212f3c';
+        ctx.fillRect(0, floorY, canvas.width, canvas.height - floorY);
+
+        player.update();
+        player.draw();
+
+        bullets.forEach((b, i) => {
+            b.update();
+            b.draw();
+            if (!b.active) bullets.splice(i, 1);
+        });
+
+        enemyBullets.forEach((b, i) => {
+            b.update();
+            b.draw();
+            if (!b.active) enemyBullets.splice(i, 1);
+        });
+
+        enemies.forEach((e, i) => {
+            e.update();
+            e.draw();
+            if (e.x < -100) enemies.splice(i, 1);
+        });
+
+        items.forEach(it => { it.update(); it.draw(); });
+
+        particles.forEach((p, i) => {
+            p.update();
+            p.draw();
+            if (p.life <= 0) particles.splice(i, 1);
+        });
+
+        // UPDATED BOSS LOGIC
+        if (!boss && score >= nextBossScore) {
+            boss = new Boss();
+            showNotification("BOSS APPROACHING!");
+        }
+
+        if (boss) {
+            boss.update();
+            boss.draw();
+        } else {
+            spawnEnemy();
+        }
+
+        spawnAirdrop();
+        handleWeather();
+        checkCollisions();
+        updateHUD();
+
+        // Update last key states
+        keys_last.space = keys.space;
+        keys_last.s = keys.s;
+        keys_last.mouse = keys.mouse;
+        keys_last.a = keys.a;
+        keys_last.d = keys.d;
+        // --- จบ LOGIC เกมเดิม ---
+    }
 }
 
 function startGame() {
@@ -821,6 +842,7 @@ function startGame() {
     document.getElementById('high-score').innerText = highScore;
 
     gameState = 'PLAYING';
+    then = Date.now();
     score = 0;
     wave = 1;
     player = new Player();

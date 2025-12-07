@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Soldier Frontline: Operation Survival</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="hp-container" class="hud-panel">
+            <div>HP <span id="hp-text">100</span>%</div>
+            <div class="bar-bg"><div id="hp-bar"></div></div>
+            <div id="shield-bar"></div>
+            <div style="font-size: 12px; margin-top:5px; color:#aaa;">Gun Lv: <span id="gun-level">1</span> | Dmg: <span id="gun-dmg">20</span></div>
+        </div>
+
+        <div id="score-container" class="hud-panel">
+            SCORE: <span id="score">0</span>
+        </div>
+
+        <div id="boss-hud" class="hud-panel">
+            <div style="display:flex; justify-content:space-between;">
+                <span>BOSS WARNING</span>
+                <span id="boss-hp-text">1000/1000</span>
+            </div>
+            <div class="bar-bg" style="border-color: #800080;"><div id="boss-hp-bar"></div></div>
+        </div>
+
+        <div id="wave-display" class="hud-panel">WAVE 1</div>
+        <div id="notification">ACID RAIN INCOMING!</div>
+        <div id="wave-announcement">WAVE 2</div>
+        
+        <!-- Mobile Controls -->
+        <div id="mobile-controls">
+            <div id="btn-left" class="control-btn">◄</div>
+            <div id="btn-right" class="control-btn">►</div>
+            <div id="btn-crouch" class="control-btn">▼</div> <!-- ปุ่มก้มตัว -->
+            <div id="btn-shoot" class="control-btn">●</div>
+            <div id="btn-jump" class="control-btn">▲</div>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen" class="screen">
+        <h1>Soldier Frontline</h1>
+        <p>ยิงศัตรู หลบสิ่งกีดขวาง และเอาชีวิตรอดจากบอส</p>
+        <p style="font-size: 14px; color: #aaa;">PC: A/D เดิน, S ก้มตัว, Space/W กระโดด (กด 2 ครั้งได้เลย), คลิก ยิง<br>Mobile: ปุ่มบนหน้าจอ (แตะ 2 ครั้ง)</p>
+        <div style="margin-bottom: 20px;">High Score: <span id="high-score">0</span></div>
+        <button class="btn" onclick="startGame()">DEPLOY (เริ่มเกม)</button>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over-screen" class="screen hidden">
+        <h1>MISSION FAILED</h1>
+        <p>Score: <span id="final-score">0</span></p>
+        <button class="btn" onclick="resetGame()">RETRY (เล่นใหม่)</button>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
