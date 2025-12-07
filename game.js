@@ -139,9 +139,9 @@ function initWave() {
     spawnConfig.tank.timer = 600; // 10s * 60
 
     // Poison: 7 per wave (Every 4s)
-    spawnConfig.poison.max = (wave >= 3) ? 7 : 0;
+    spawnConfig.poison.max = (wave >= 3) ? 3 : 0;
     spawnConfig.poison.count = 0;
-    spawnConfig.poison.timer = 240; // 4s * 60
+    spawnConfig.poison.timer = 300;
 
     // Shielded: 2 per wave (Every 12s)
     spawnConfig.shield.max = (wave >= 5) ? 2 : 0;
@@ -417,9 +417,10 @@ class Enemy {
         else if (type === 'POISON') { 
             this.w = 40; this.h = 70;
             baseHp = 65;
-            baseSpd = 1.5;
+            baseSpd = 0.3;
             this.color = '#006400'; 
             this.scoreVal = 150;
+            this.fireRate = 8;
         }
         else if (type === 'SHIELDED') { 
             this.w = 45; this.h = 75;
