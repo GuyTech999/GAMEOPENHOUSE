@@ -409,29 +409,29 @@ class Enemy {
 
         if (type === 'TANK') { 
             this.w = 60; this.h = 90;
-            baseHp = 200; 
+            baseHp = 400; 
             baseSpd = 0.5; 
             this.color = '#555'; 
             this.scoreVal = 300;
         } 
         else if (type === 'POISON') { 
             this.w = 40; this.h = 70;
-            baseHp = 50;
+            baseHp = 65;
             baseSpd = 1.5;
             this.color = '#006400'; 
             this.scoreVal = 150;
         }
         else if (type === 'SHIELDED') { 
             this.w = 45; this.h = 75;
-            baseHp = 80;
-            this.shield = 150 + (wave * 50); 
+            baseHp = 150;
+            this.shield = 150 + (wave * 30); 
             baseSpd = 1.2;
             this.color = '#34495e';
             this.scoreVal = 200;
         }
         else if (type === 'DRONE') {
             this.w = 30; this.h = 30;
-            baseHp = 30;
+            baseHp = 20;
             baseSpd = 2.0;
             this.color = '#e74c3c';
             this.scoreVal = 80;
@@ -445,7 +445,7 @@ class Enemy {
         }
 
         this.hp = baseHp + (wave * 15);
-        this.speed = baseSpd + (wave * 0.05);
+        this.speed = baseSpd;
 
         if (Math.random() < 0.5) {
             this.x = -50; 
@@ -463,7 +463,7 @@ class Enemy {
         }
         
         this.lastShot = 0;
-        this.fireRate = Math.max(50, 160 - (wave * 5)); 
+        this.fireRate = Math.max(50, 160); 
         this.lastShot = frames + Math.random() * 100;
     }
     
