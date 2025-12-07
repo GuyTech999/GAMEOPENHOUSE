@@ -1,6 +1,6 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Boss Overhaul & Ultimate Update)
+ * Soldier Frontline: Operation Survival (Weather Catastrophe Update)
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -33,9 +33,11 @@ let shieldEnemySchedule = [];
 let gravity = 0.6;
 let floorY = 0;
 
-// Weather
-let weather = 'CLEAR'; 
-const weatherCycleLength = 900; 
+// --- Weather System (Updated) ---
+let weather = 'CLEAR'; // CLEAR, ACID_RAIN, THUNDERSTORM, LAVA, SOULSAND
+const weatherCycleLength = 900; // 15 seconds cycle (10s Clear, 5s Event)
+let lightningStrikes = []; // Array เก็บข้อมูลสายฟ้า
+let weatherInitFrame = 0; // เฟรมที่เริ่มเกิด weather เพื่อใช้คำนวณ delay
 
 // Entities
 let player;
@@ -112,19 +114,16 @@ function initWave() {
     shieldEnemySchedule = [];
     healDropsInWave = 0; 
     
-    // 1. สุ่มเวลา Drop ปืน (3 ครั้ง)
     for (let i = 0; i < 3; i++) {
         upgradeSchedule.push(randomFrameInWave());
     }
 
-    // 2. Wave 2+: Tank Enemy (3 ตัว)
     if (wave >= 2) {
         for (let i = 0; i < 3; i++) {
             tankSchedule.push(randomFrameInWave());
         }
     }
 
-    // 3. Wave 5+: Shield Enemy (4 ตัว)
     if (wave >= 5) {
         for (let i = 0; i < 4; i++) {
             shieldEnemySchedule.push(randomFrameInWave());
@@ -188,6 +187,7 @@ class Player {
     }
 
     update() {
+        // Poison Status
         if (this.poisonTimer > 0) {
             this.poisonTimer--;
             this.poisonTick++;
@@ -200,6 +200,7 @@ class Player {
             this.poisonTick = 0;
         }
 
+        // Crouch Logic
         if (keys.s) {
             if (!this.isCrouching) {
                 this.isCrouching = true;
@@ -216,8 +217,14 @@ class Player {
             }
         }
 
-        if (keys.a) { this.vx = -this.speed; }
-        else if (keys.d) { this.vx = this.speed; }
+        // Movement with SOULSAND Effect
+        let moveSpeed = this.speed;
+        if (weather === 'SOULSAND' && this.isGrounded) {
+            moveSpeed *= 0.8; // Slow down by 20%
+        }
+
+        if (keys.a) { this.vx = -moveSpeed; }
+        else if (keys.d) { this.vx = moveSpeed; }
         else { this.vx *= 0.8; }
 
         const isSpaceNewlyPressed = keys.space && !keys_last.space;
@@ -451,6 +458,13 @@ class Enemy {
     }
     
     update() {
+        // --- SOULSAND Effect on Enemy (Faster) ---
+        let currentSpeed = this.speed;
+        if (weather === 'SOULSAND') currentSpeed *= 1.15; // 15% Faster
+
+        if (this.vx > 0) this.vx = currentSpeed;
+        else this.vx = -currentSpeed;
+
         this.x += this.vx;
 
         if (!this.entered) {
@@ -459,9 +473,9 @@ class Enemy {
             }
         } else {
             if (this.x <= 0) {
-                this.vx = Math.abs(this.speed); 
+                this.vx = Math.abs(currentSpeed); 
             } else if (this.x >= canvas.width - this.w) {
-                this.vx = -Math.abs(this.speed); 
+                this.vx = -Math.abs(currentSpeed); 
             }
         }
 
@@ -549,56 +563,58 @@ class Enemy {
     }
 }
 
-// --- NEW BOSS CLASS: Unpredictable AI & Ultimate ---
 class Boss {
     constructor() {
-        this.maxHp = 2000 + (wave * 1200); 
+        this.w = 160;
+        this.h = 120;
+        this.x = canvas.width + 100;
+        this.y = floorY - this.h - 50; 
+        
+        this.maxHp = 1500 + (wave * 1000); 
         this.hp = this.maxHp;
         
-        this.phase = 'ENTER'; // ENTER, ACTION, ULTIMATE
-        this.state = 'IDLE';  // Sub-states: IDLE, MOVE, ATTACK, PREPARE_ULT
-        this.timer = 0;
+        this.phase = 'ENTER'; 
+        this.targetX = canvas.width - 250;
         
-        this.ultReady = false;
-        this.ultCharge = 0;
-        this.ultMaxCharge = 1000;
+        // Disable Weather during Boss
+        weather = 'CLEAR';
+        showNotification("BOSS ENGAGED - WEATHER CLEARED");
         
-        // Define Boss Type based on Wave
         if (wave % 3 === 1) {
-            this.bossType = 'IRON CLAD'; // Tanky, Slow
-            this.w = 200; this.h = 150;
+            this.bossType = 'IRON CLAD'; 
             this.color = '#2e4053';
+            this.w = 200; this.h = 150;
             this.speed = 1.0;
         } else if (wave % 3 === 2) {
-            this.bossType = 'VIPER'; // Fast, Triangle
-            this.w = 120; this.h = 80;
+            this.bossType = 'VIPER'; 
             this.color = '#c0392b';
+            this.w = 120; this.h = 80;
             this.speed = 4.0;
         } else {
-            this.bossType = 'NEXUS'; // Floating, Magic
-            this.w = 140; this.h = 140;
+            this.bossType = 'NEXUS'; 
             this.color = '#8e44ad';
+            this.w = 140; this.h = 140;
             this.speed = 2.0;
         }
 
-        // Spawn Right
-        this.x = canvas.width + 100;
-        this.y = floorY - this.h - 50;
-        this.targetX = canvas.width - 300;
+        // AI Vars
+        this.state = 'IDLE'; 
+        this.timer = 0;
+        this.actionTimer = 0;
         this.moveDir = -1;
+        
+        this.ultCharge = 0;
+        this.ultMaxCharge = 1000;
 
         document.getElementById('boss-hud').style.display = 'block';
         document.getElementById('score-container').style.display = 'none'; 
         updateBossHUD(this.hp, this.maxHp);
-        
-        this.actionTimer = 0;
     }
 
     update() {
-        // --- 1. Entry Phase ---
         if (this.phase === 'ENTER') {
             if (this.x > this.targetX) {
-                this.x -= 2;
+                this.x -= 2; 
             } else {
                 this.phase = 'ACTION';
                 this.pickNextAction();
@@ -606,43 +622,33 @@ class Boss {
             return;
         }
 
-        // --- 2. Ultimate Phase (Priority) ---
         if (this.phase === 'ULTIMATE') {
             this.handleUltimate();
             return;
         }
 
-        // --- 3. Action Phase (AI Loop) ---
-        // Charge Ultimate Gauge slowly
+        // Charge Ult
         if (this.ultCharge < this.ultMaxCharge) {
             this.ultCharge += 2;
         } else {
-            // Trigger Ultimate
             this.startUltimate();
             return;
         }
 
         this.actionTimer--;
         
-        // Execute Current State
         if (this.state === 'MOVE') {
             this.x += this.speed * this.moveDir;
-            
-            // Wall Bounce
             if (this.x <= 50) this.moveDir = 1;
             if (this.x >= canvas.width - this.w - 50) this.moveDir = -1;
             
-            // Hover for Nexus/Viper
             if (this.bossType !== 'IRON CLAD') {
                 this.y = (floorY - this.h - 50) + Math.sin(frames * 0.05) * 50;
             }
-
         } else if (this.state === 'ATTACK') {
-             // Attack Logic varies by boss
              if (frames % 30 === 0) this.performAttack();
         }
 
-        // Pick new action when timer ends
         if (this.actionTimer <= 0) {
             this.pickNextAction();
         }
@@ -650,17 +656,15 @@ class Boss {
 
     pickNextAction() {
         let rand = Math.random();
-        
         if (rand < 0.4) {
             this.state = 'MOVE';
-            this.actionTimer = 60 + Math.random() * 120; // Move for 1-3 sec
-            // Random direction
+            this.actionTimer = 60 + Math.random() * 120; 
             this.moveDir = (player.x < this.x) ? -1 : 1;
         } else if (rand < 0.9) {
             this.state = 'ATTACK';
-            this.actionTimer = 60 + Math.random() * 60; // Attack for 1-2 sec
+            this.actionTimer = 60 + Math.random() * 60; 
         } else {
-            this.state = 'IDLE'; // Pause briefly
+            this.state = 'IDLE'; 
             this.actionTimer = 30;
         }
     }
@@ -672,13 +676,10 @@ class Boss {
         let dmg = 15 + wave;
 
         if (this.bossType === 'IRON CLAD') {
-            // Big Bomb
             enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, dmg*1.5, false));
         } else if (this.bossType === 'VIPER') {
-            // Rapid Lasers
             enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*12, Math.sin(angle)*12, dmg, false));
         } else {
-            // Nexus Omni-shot
              for(let i=0; i<6; i++) {
                 let a = angle + (i * (Math.PI/3));
                 enemyBullets.push(new Bullet(this.x + this.w/2, this.y + this.h/2, Math.cos(a)*5, Math.sin(a)*5, dmg, false));
@@ -688,35 +689,26 @@ class Boss {
 
     startUltimate() {
         this.phase = 'ULTIMATE';
-        this.state = 'PREPARE'; // Warning State
-        this.timer = 180; // 3 Seconds Warning
+        this.state = 'PREPARE'; 
+        this.timer = 180; 
         showNotification("⚠️ WARNING: GET TO HIGH GROUND! ⚠️");
     }
 
     handleUltimate() {
         this.timer--;
-        
-        // Phase 1: Warning
         if (this.state === 'PREPARE') {
-            // Flash Floor Effect is handled in GameLoop draw
             if (this.timer <= 0) {
                 this.state = 'EXECUTE';
-                this.timer = 300; // 5 Seconds Active
+                this.timer = 300; 
                 showNotification("🔥 FLOOR IS DEADLY! 🔥");
             }
-        } 
-        // Phase 2: Execution (Damage)
-        else if (this.state === 'EXECUTE') {
-            // Check Player Y Position
-            // If player is on the ground level (floorY), take massive damage
-            // Safety Margin: floorY - 20
+        } else if (this.state === 'EXECUTE') {
             if (player.y + player.h >= floorY - 10) {
-                if (frames % 10 === 0) { // Damage every 10 frames
+                if (frames % 10 === 0) { 
                     player.takeDamage(10);
                     createParticles(player.x, player.y + player.h, 5, '#ff0000');
                 }
             }
-
             if (this.timer <= 0) {
                 this.phase = 'ACTION';
                 this.ultCharge = 0;
@@ -727,23 +719,19 @@ class Boss {
     }
 
     draw() {
-        // Draw Ultimate Warning Floor
         if (this.phase === 'ULTIMATE') {
             ctx.save();
             if (this.state === 'PREPARE') {
                 ctx.fillStyle = (Math.floor(frames / 10) % 2 === 0) ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 255, 0, 0.3)';
             } else {
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; // Lava!
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; 
             }
             ctx.fillRect(0, floorY - 10, canvas.width, 100);
             ctx.restore();
         }
 
-        // Draw Boss
         ctx.fillStyle = this.color;
-        
         if (this.bossType === 'VIPER') {
-            // Triangle shape
             ctx.beginPath();
             ctx.moveTo(this.x + this.w/2, this.y);
             ctx.lineTo(this.x + this.w, this.y + this.h);
@@ -751,24 +739,20 @@ class Boss {
             ctx.closePath();
             ctx.fill();
         } else if (this.bossType === 'NEXUS') {
-            // Circle shape
             ctx.beginPath();
             ctx.arc(this.x + this.w/2, this.y + this.h/2, this.w/2, 0, Math.PI*2);
             ctx.fill();
         } else {
-            // Tank Box
             ctx.fillRect(this.x, this.y, this.w, this.h);
-            // Armor plates
             ctx.fillStyle = '#566573';
             ctx.fillRect(this.x - 10, this.y + 20, 10, this.h - 40);
         }
 
-        // Draw Health Bar above boss
         if (this.phase !== 'ULTIMATE') {
             let hpPct = this.ultCharge / this.ultMaxCharge;
             ctx.fillStyle = '#333';
             ctx.fillRect(this.x, this.y - 20, this.w, 10);
-            ctx.fillStyle = '#f1c40f'; // Yellow for Ult Charge
+            ctx.fillStyle = '#f1c40f'; 
             ctx.fillRect(this.x, this.y - 20, this.w * hpPct, 10);
         } else {
              ctx.fillStyle = '#fff';
@@ -786,19 +770,15 @@ class Boss {
             createParticles(this.x + this.w/2, this.y + this.h/2, 100, '#ffa500'); 
             boss = null;
             score += 1000 + (wave * 500);
-            
             wave++;
             
             items.push(new Item(this.x, floorY - 30, 'HEAL'));
             items.push(new Item(this.x + 40, floorY - 30, 'SCORE'));
-            
-            // --- 13. MAX HP Drop (Boss Only) ---
             items.push(new Item(this.x + 80, floorY - 30, 'MAXHP'));
 
             document.getElementById('boss-hud').style.display = 'none';
             document.getElementById('score-container').style.display = 'block';
             updateHUD();
-            
             announceWave(wave);
             initWave(); 
         }
@@ -811,7 +791,7 @@ class Item {
         this.y = y;
         this.w = 30;
         this.h = 30;
-        this.type = type; // HEAL, UPGRADE, SHIELD, SCORE, MAXHP
+        this.type = type; 
         this.vy = 0;
         this.grounded = false;
         
@@ -819,7 +799,7 @@ class Item {
         if (type === 'UPGRADE') this.color = '#e67e22'; 
         if (type === 'SHIELD') this.color = '#3498db'; 
         if (type === 'SCORE') this.color = '#f1c40f'; 
-        if (type === 'MAXHP') this.color = '#9b59b6'; // Purple for Max HP
+        if (type === 'MAXHP') this.color = '#9b59b6'; 
     }
     update() {
         if (!this.grounded) {
@@ -906,11 +886,9 @@ function spawnEnemy() {
 function spawnSpecialEvents() {
     if (boss) return;
 
-    // 1. General Airdrop
     if (frames > 0 && frames % 900 === 0) { 
         let rand = Math.random();
         let type = 'SCORE';
-        
         if (rand < 0.4) {
             if (healDropsInWave < 8) {
                 type = 'HEAL';
@@ -921,26 +899,22 @@ function spawnSpecialEvents() {
         } else if (rand < 0.8) {
             type = 'SHIELD';
         }
-        
         let x = 50 + Math.random() * (canvas.width - 100);
         items.push(new Item(x, -50, type));
         showNotification("SUPPLIES INCOMING!");
     }
 
-    // 2. Scheduled UPGRADE Airdrop
     if (upgradeSchedule.includes(waveTimer)) {
          let x = 50 + Math.random() * (canvas.width - 100);
          items.push(new Item(x, -50, 'UPGRADE'));
          showNotification("WEAPON DROP!");
     }
 
-    // 3. Scheduled TANK Enemy
     if (tankSchedule.includes(waveTimer)) {
         enemies.push(new Enemy('TANK'));
         showNotification("HEAVY ENEMY!");
     }
 
-    // 4. Scheduled SHIELD Enemy
     if (shieldEnemySchedule.includes(waveTimer)) {
         enemies.push(new Enemy('SHIELDED'));
         showNotification("SHIELDED UNIT!");
@@ -949,19 +923,28 @@ function spawnSpecialEvents() {
 
 function handleWeather() {
     let cycle = frames % weatherCycleLength; 
-    if (cycle > 600) {
-        if (weather !== 'ACID_RAIN') {
-            weather = 'ACID_RAIN';
-            showNotification("WARNING: ACID RAIN!");
-        }
-    } else {
-        if (weather !== 'CLEAR') {
-            weather = 'CLEAR';
-            showNotification("WEATHER CLEARED");
-        }
+    
+    // --- 14. Weather Selection ---
+    if (cycle === 600) { // Start of Weather Event
+        let r = Math.random();
+        weatherInitFrame = frames;
+        if (r < 0.25) weather = 'ACID_RAIN';
+        else if (r < 0.50) weather = 'THUNDERSTORM';
+        else if (r < 0.75) weather = 'LAVA';
+        else weather = 'SOULSAND';
+        
+        showNotification("WARNING: " + weather + " DETECTED!");
+        // Clear previous lightning data
+        lightningStrikes = [];
+    } else if (cycle === 0) { // End of cycle
+        weather = 'CLEAR';
+        showNotification("WEATHER CLEARED");
     }
 
+    // --- Weather Effects ---
+    
     if (weather === 'ACID_RAIN') {
+        // Visual
         ctx.strokeStyle = '#a569bd'; 
         ctx.lineWidth = 2;
         for (let i = 0; i < 15; i++) {
@@ -972,21 +955,87 @@ function handleWeather() {
             ctx.lineTo(rx - 5, ry + 20);
             ctx.stroke();
         }
-
-        if (frames % 60 === 0) {
+        // Damage (5 per sec)
+        if (frames % 12 === 0) { // 60/5 = 12 frames approx
             let isSheltered = false;
             let pCenter = player.x + player.w/2;
             platforms.forEach(p => {
-                if (pCenter > p.x && pCenter < p.x + p.w && player.y > p.y) {
-                    isSheltered = true;
-                }
+                if (pCenter > p.x && pCenter < p.x + p.w && player.y > p.y) isSheltered = true;
             });
-
             if (!isSheltered) {
-                player.takeDamage(2);
-                createParticles(player.x + player.w/2, player.y, 3, '#a569bd'); 
+                player.takeDamage(1); // 1 damage 5 times/sec = 5dps
+                createParticles(player.x + player.w/2, player.y, 1, '#a569bd'); 
             }
         }
+    } 
+    
+    else if (weather === 'THUNDERSTORM') {
+        // Strike Logic (1 per sec)
+        if (frames % 60 === 0) {
+            let strikeX = Math.random() * (canvas.width - 50);
+            lightningStrikes.push({ x: strikeX, timer: 18, state: 'WARN' }); // 18 frames = 0.3s
+        }
+
+        // Process Strikes
+        for (let i = lightningStrikes.length - 1; i >= 0; i--) {
+            let s = lightningStrikes[i];
+            s.timer--;
+            
+            if (s.state === 'WARN') {
+                // Draw Warning (Blue Light)
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+                ctx.fillRect(s.x - 20, 0, 40, canvas.height);
+                
+                if (s.timer <= 0) {
+                    s.state = 'STRIKE';
+                    s.timer = 10; // Strike lasts 10 frames
+                    // Deal Damage
+                    if (player.x < s.x + 20 && player.x + player.w > s.x - 20) {
+                        player.takeDamage(20);
+                        showNotification("ZAPPED!");
+                    }
+                }
+            } else if (s.state === 'STRIKE') {
+                // Draw Lightning
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(s.x, 0);
+                ctx.lineTo(s.x + (Math.random()-0.5)*20, canvas.height/2);
+                ctx.lineTo(s.x, canvas.height);
+                ctx.stroke();
+                
+                if (s.timer <= 0) lightningStrikes.splice(i, 1);
+            }
+        }
+    } 
+    
+    else if (weather === 'LAVA') {
+        // Logic: Wait 1s (60 frames) then rise
+        let activeTime = frames - weatherInitFrame;
+        
+        if (activeTime > 60) {
+            // Draw Lava
+            let lavaH = 110; // Max height based on lowest platform (floorY - 120)
+            let currentLavaY = floorY - lavaH;
+            
+            ctx.fillStyle = 'rgba(255, 69, 0, 0.8)';
+            ctx.fillRect(0, currentLavaY, canvas.width, lavaH);
+            
+            // Damage Check (80 per sec)
+            if (player.y + player.h > currentLavaY + 10) {
+                if (frames % 45 === 0) { // Tick damage
+                    player.takeDamage(60); // High damage chunks
+                }
+            }
+        }
+    } 
+    
+    else if (weather === 'SOULSAND') {
+        // Visual: Brown Floor
+        ctx.fillStyle = '#5d4037';
+        ctx.fillRect(0, floorY, canvas.width, 100);
+        // Speed modification is handled in Player/Enemy update classes
     }
 }
 
@@ -1014,11 +1063,9 @@ function checkCollisions() {
                 
                 b.active = false;
                 if (e.hp <= 0) {
-                    // Enemy Drop Item Logic (Only HEAL)
                     if (Math.random() < 0.15) { 
                          items.push(new Item(e.x, e.y, 'HEAL'));
                     }
-
                     enemies.splice(j, 1);
                     score += e.scoreVal;
                 }
@@ -1044,7 +1091,6 @@ function checkCollisions() {
         if (player.x < it.x + it.w && player.x + player.w > it.x &&
             player.y < it.y + it.h && player.y + player.h > it.y) {
             
-            // Item Effects Update
             if (it.type === 'HEAL') { player.hp = Math.min(player.hp + 30, player.maxHp); showNotification("HEALED!"); }
             if (it.type === 'UPGRADE') { player.damage += 5; player.gunLevel++; showNotification("WEAPON UPGRADE!"); }
             if (it.type === 'SHIELD') { player.shield = 50; showNotification("SHIELD EQUIPPED!"); }
