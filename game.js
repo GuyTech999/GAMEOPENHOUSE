@@ -1,6 +1,6 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Fire Rate & Notification Update)
+ * Soldier Frontline: Operation Survival (Tutorial & Forced Read Update)
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -23,9 +23,9 @@ let frames = 0;
 const WAVE_DURATION = 40 * 60; // 40 วินาที
 let waveTimer = WAVE_DURATION;
 let healDropsInWave = 0; 
-let fireRateDropsInWave = 0; // ตัวนับไอเทม Fire Rate ต่อเวฟ
+let fireRateDropsInWave = 0;
 
-// --- Spawn Configuration (New System) ---
+// --- Spawn Configuration ---
 let spawnConfig = {
     soldier: { count: 0, max: 0, timer: 0 },
     drone:   { count: 0, max: 0, timer: 0 },
@@ -34,7 +34,7 @@ let spawnConfig = {
     shield:  { count: 0, max: 0, timer: 0 }
 };
 
-// Schedules (Items)
+// Schedules
 let upgradeSchedule = []; 
 
 // Environment
@@ -111,41 +111,61 @@ if (isMobile) {
     bindTouch('btn-shoot', 'mouse');
 }
 
-// --- Wave Init Function (Spawn Logic Setup) ---
+// --- Tutorial Logic (NEW) ---
+function showTutorial() {
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('tutorial-screen').classList.remove('hidden');
+    
+    let btn = document.getElementById('btn-start-game');
+    let timeLeft = 10;
+    
+    // Reset button state
+    btn.disabled = true;
+    btn.classList.add('disabled');
+    btn.innerText = `READ MANUAL (${timeLeft})`;
+    
+    // Countdown Timer
+    let timer = setInterval(() => {
+        timeLeft--;
+        if (timeLeft <= 0) {
+            clearInterval(timer);
+            btn.disabled = false;
+            btn.classList.remove('disabled');
+            btn.innerText = "DEPLOY TO BATTLE";
+        } else {
+            btn.innerText = `READ MANUAL (${timeLeft})`;
+        }
+    }, 1000);
+}
+
+// --- Wave Init ---
 function initWave() {
     waveTimer = WAVE_DURATION;
     upgradeSchedule = [];
     healDropsInWave = 0; 
-    fireRateDropsInWave = 0; // Reset Fire Rate Drops
+    fireRateDropsInWave = 0;
     
-    // 1. Upgrade Drops (3 times per wave)
     for (let i = 0; i < 3; i++) {
         upgradeSchedule.push(randomFrameInWave());
     }
 
-    // --- Configure Spawn Limits & Timers ---
-    
-    // Soldier: 14 + 3 per wave
+    // Spawn Limits
     spawnConfig.soldier.max = 14 + ((wave - 1) * 3);
     spawnConfig.soldier.count = 0;
     spawnConfig.soldier.timer = 60; 
 
-    // Drone: 2 + 1 per wave
     spawnConfig.drone.max = 2 + (wave - 1);
     spawnConfig.drone.count = 0;
     spawnConfig.drone.timer = 120;
 
-    // Tank: 3 per wave (Every 10s)
     spawnConfig.tank.max = (wave >= 2) ? 3 : 0;
     spawnConfig.tank.count = 0;
     spawnConfig.tank.timer = 600; 
 
-    // Poison: 7 per wave (Every 4s)
     spawnConfig.poison.max = (wave >= 3) ? 7 : 0;
     spawnConfig.poison.count = 0;
     spawnConfig.poison.timer = 240; 
 
-    // Shielded: 2 per wave (Every 12s)
     spawnConfig.shield.max = (wave >= 5) ? 2 : 0;
     spawnConfig.shield.count = 0;
     spawnConfig.shield.timer = 720; 
@@ -196,7 +216,7 @@ class Player {
         this.damage = 20; 
         this.gunLevel = 1;
         this.lastShot = 0;
-        this.fireRate = 15; // ยิ่งน้อยยิ่งรัว (Default)
+        this.fireRate = 15;
         this.isGrounded = true;
         this.isCrouching = false;
         this.jumpCount = 0;
@@ -365,7 +385,6 @@ class Player {
     
     applyPoison() {
         if (this.shield <= 0) { 
-            // 20. Poison Duration reduced to 5s (300 frames)
             this.poisonTimer = 300; 
             showNotification("POISONED!");
         }
@@ -406,13 +425,12 @@ class Enemy {
         this.type = type; 
         this.shield = 0; 
         
-        // --- Stat Configuration ---
         let baseHp = 0;
         let baseSpd = 0;
 
         if (type === 'TANK') { 
             this.w = 60; this.h = 90;
-            baseHp = 200; 
+            baseHp = 400; 
             baseSpd = 0.5; 
             this.color = '#555'; 
             this.scoreVal = 300;
@@ -434,12 +452,12 @@ class Enemy {
         }
         else if (type === 'DRONE') {
             this.w = 30; this.h = 30;
-            baseHp = 30;
+            baseHp = 20;
             baseSpd = 2.0;
             this.color = '#e74c3c';
             this.scoreVal = 80;
         }
-        else { // SOLDIER
+        else { 
             this.w = 40; this.h = 70;
             baseHp = 40;
             baseSpd = 1.0;
@@ -585,7 +603,6 @@ class Boss {
         this.phase = 'ENTER'; 
         this.targetX = canvas.width - 250;
         
-        // Disable Weather during Boss
         weather = 'CLEAR';
         showNotification("BOSS ENGAGED - WEATHER CLEARED");
         
@@ -606,7 +623,6 @@ class Boss {
             this.speed = 2.0;
         }
 
-        // AI Vars
         this.state = 'IDLE'; 
         this.timer = 0;
         this.actionTimer = 0;
@@ -636,7 +652,6 @@ class Boss {
             return;
         }
 
-        // Charge Ult
         if (this.ultCharge < this.ultMaxCharge) {
             this.ultCharge += 2;
         } else {
@@ -800,7 +815,7 @@ class Item {
         this.y = y;
         this.w = 30;
         this.h = 30;
-        this.type = type; // HEAL, UPGRADE, SHIELD, SCORE, MAXHP, FIRERATE
+        this.type = type; 
         this.vy = 0;
         this.grounded = false;
         
@@ -809,7 +824,7 @@ class Item {
         if (type === 'SHIELD') this.color = '#3498db'; 
         if (type === 'SCORE') this.color = '#f1c40f'; 
         if (type === 'MAXHP') this.color = '#9b59b6'; 
-        if (type === 'FIRERATE') this.color = '#00e5ff'; // Cyan for Fire Rate
+        if (type === 'FIRERATE') this.color = '#00e5ff';
     }
     update() {
         if (!this.grounded) {
@@ -877,53 +892,48 @@ function createParticles(x, y, count, color) {
 function spawnSystem() {
     if (boss) return;
 
-    // 1. Soldiers (Random fast spawn)
     if (spawnConfig.soldier.count < spawnConfig.soldier.max) {
         spawnConfig.soldier.timer--;
         if (spawnConfig.soldier.timer <= 0) {
             enemies.push(new Enemy('SOLDIER'));
             spawnConfig.soldier.count++;
-            spawnConfig.soldier.timer = 60 + Math.random() * 120; // 1-3s random
+            spawnConfig.soldier.timer = 60 + Math.random() * 120; 
         }
     }
 
-    // 2. Drones
     if (spawnConfig.drone.count < spawnConfig.drone.max) {
         spawnConfig.drone.timer--;
         if (spawnConfig.drone.timer <= 0) {
             enemies.push(new Enemy('DRONE'));
             spawnConfig.drone.count++;
-            spawnConfig.drone.timer = 180 + Math.random() * 120; // 3-5s random
+            spawnConfig.drone.timer = 180 + Math.random() * 120; 
         }
     }
 
-    // 3. Tank (Every 10s)
     if (spawnConfig.tank.count < spawnConfig.tank.max) {
         spawnConfig.tank.timer--;
         if (spawnConfig.tank.timer <= 0) {
             enemies.push(new Enemy('TANK'));
             spawnConfig.tank.count++;
-            spawnConfig.tank.timer = 600; // 10s
+            spawnConfig.tank.timer = 600; 
         }
     }
 
-    // 4. Poison (Every 4s)
     if (spawnConfig.poison.count < spawnConfig.poison.max) {
         spawnConfig.poison.timer--;
         if (spawnConfig.poison.timer <= 0) {
             enemies.push(new Enemy('POISON'));
             spawnConfig.poison.count++;
-            spawnConfig.poison.timer = 240; // 4s
+            spawnConfig.poison.timer = 240; 
         }
     }
 
-    // 5. Shielded (Every 12s)
     if (spawnConfig.shield.count < spawnConfig.shield.max) {
         spawnConfig.shield.timer--;
         if (spawnConfig.shield.timer <= 0) {
             enemies.push(new Enemy('SHIELDED'));
             spawnConfig.shield.count++;
-            spawnConfig.shield.timer = 720; // 12s
+            spawnConfig.shield.timer = 720; 
         }
     }
 }
@@ -945,7 +955,6 @@ function spawnSpecialEvents() {
         } else if (rand < 0.70) {
             type = 'SHIELD';
         } else if (rand < 0.90) {
-            // --- 19. Fire Rate Drop Logic ---
             if (fireRateDropsInWave < 2) {
                 type = 'FIRERATE';
                 fireRateDropsInWave++;
@@ -1126,7 +1135,6 @@ function checkCollisions() {
             if (it.type === 'SHIELD') { player.shield = 50; showNotification("SHIELD EQUIPPED!"); }
             if (it.type === 'SCORE') { score += 500; }
             if (it.type === 'MAXHP') { player.maxHp += 5; player.hp += 5; showNotification("MAX HP INCREASED!"); }
-            // --- 19. Fire Rate Pickup ---
             if (it.type === 'FIRERATE') { 
                 player.fireRate = Math.max(5, player.fireRate - 5); 
                 showNotification("RAPID FIRE!"); 
@@ -1262,6 +1270,7 @@ function gameLoop() {
 
 function startGame() {
     document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('tutorial-screen').classList.add('hidden'); // Hide tutorial if coming from there
     document.getElementById('game-over-screen').classList.add('hidden');
     document.getElementById('high-score').innerText = highScore;
 
@@ -1317,5 +1326,6 @@ function endGame() {
 }
 
 function resetGame() {
+    // Reset to start screen or restart directly? Let's restart directly via startGame
     startGame();
 }
