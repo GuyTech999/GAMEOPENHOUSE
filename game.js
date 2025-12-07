@@ -1452,7 +1452,7 @@ function handleWeather() {
             if (strikeX < 20) strikeX = 20;
             if (strikeX > canvas.width - 20) strikeX = canvas.width - 20;
 
-            lightningStrikes.push({ x: strikeX, timer: 18, state: 'WARN' }); 
+            lightningStrikes.push({ x: strikeX, timer: 30, state: 'WARN' }); 
         }
 
         for (let i = lightningStrikes.length - 1; i >= 0; i--) {
@@ -1486,22 +1486,51 @@ function handleWeather() {
     } 
     
     else if (weather === 'LAVA') {
-        let activeTime = frames - weatherInitFrame;
-        
-        if (activeTime > 60) {
-            let lavaH = 110; 
-            let currentLavaY = floorY - lavaH;
-            
-            ctx.fillStyle = 'rgba(255, 69, 0, 0.8)';
-            ctx.fillRect(0, currentLavaY, canvas.width, lavaH);
-            
-            if (player.y + player.h > currentLavaY + 10) {
-                if (frames % 45 === 0) { 
-                    player.takeDamage(60); 
-                }
+    let activeTime = frames - weatherInitFrame;
+
+    const WARNING_DURATION = 180; // 4 วินาที (60fps)
+    const FLASH_COUNT = 2;        // กระพริบ 2 รอบ
+    const FLASH_DURATION = WARNING_DURATION / FLASH_COUNT / 2;
+
+    // หาแพลตฟอร์มที่ต่ำที่สุด
+    let lowestPlatformY = Infinity;
+    platforms.forEach(p => {
+        if (p.y < lowestPlatformY) lowestPlatformY = p.y;
+    });
+
+    // ความสูงลาวา
+    let lavaH = 110;
+
+    // ตำแหน่ง Y ของลาวาจะอยู่ตรงนี้ (แต่จะโชว์หลังหมดช่วงเตือน)
+    let predictedLavaY = Math.max(floorY - lavaH, lowestPlatformY);
+
+    if (activeTime < WARNING_DURATION) {
+
+        // --- เอฟเฟกต์กระพริบส้มเฉพาะบริเวณลาวา ---
+        let flashPhase = Math.floor(activeTime / FLASH_DURATION);
+        if (flashPhase % 2 === 0) {
+            ctx.fillStyle = 'rgba(255, 140, 0, 0.25)';
+            ctx.fillRect(0, predictedLavaY, canvas.width, lavaH);
+        }
+
+    } else {
+
+        // --- เริ่มปล่อยลาวา ---
+        let currentLavaY = predictedLavaY;
+
+        ctx.fillStyle = 'rgba(255, 69, 0, 0.8)';
+        ctx.fillRect(0, currentLavaY, canvas.width, lavaH);
+
+        // --- ตรวจจับการโดนลาวา ---
+        if (player.y + player.h > currentLavaY + 10) {
+            if (frames % 45 === 0) {
+                player.takeDamage(60);
             }
         }
-    } 
+    }
+}
+
+ 
 }
 
 function checkCollisions() {
