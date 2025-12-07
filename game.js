@@ -1136,7 +1136,7 @@ function checkCollisions() {
             if (it.type === 'SCORE') { score += 500; }
             if (it.type === 'MAXHP') { player.maxHp += 5; player.hp += 5; showNotification("MAX HP INCREASED!"); }
             if (it.type === 'FIRERATE') { 
-                player.fireRate = Math.max(5, player.fireRate - 0.5); 
+                player.fireRate = Math.max(5, player.fireRate - 1); 
                 showNotification("RAPID FIRE!"); 
             }
             
