@@ -1,6 +1,6 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Spawn Logic Overhaul)
+ * Soldier Frontline: Operation Survival (Fire Rate & Notification Update)
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -23,6 +23,7 @@ let frames = 0;
 const WAVE_DURATION = 40 * 60; // 40 วินาที
 let waveTimer = WAVE_DURATION;
 let healDropsInWave = 0; 
+let fireRateDropsInWave = 0; // ตัวนับไอเทม Fire Rate ต่อเวฟ
 
 // --- Spawn Configuration (New System) ---
 let spawnConfig = {
@@ -115,18 +116,19 @@ function initWave() {
     waveTimer = WAVE_DURATION;
     upgradeSchedule = [];
     healDropsInWave = 0; 
+    fireRateDropsInWave = 0; // Reset Fire Rate Drops
     
     // 1. Upgrade Drops (3 times per wave)
     for (let i = 0; i < 3; i++) {
         upgradeSchedule.push(randomFrameInWave());
     }
 
-    // --- 17. Configure Spawn Limits & Timers ---
+    // --- Configure Spawn Limits & Timers ---
     
     // Soldier: 14 + 3 per wave
-    spawnConfig.soldier.max = 4 + ((wave - 1) * 2);
+    spawnConfig.soldier.max = 14 + ((wave - 1) * 3);
     spawnConfig.soldier.count = 0;
-    spawnConfig.soldier.timer = 60; // Start spawning soon
+    spawnConfig.soldier.timer = 60; 
 
     // Drone: 2 + 1 per wave
     spawnConfig.drone.max = 2 + (wave - 1);
@@ -136,17 +138,17 @@ function initWave() {
     // Tank: 3 per wave (Every 10s)
     spawnConfig.tank.max = (wave >= 2) ? 3 : 0;
     spawnConfig.tank.count = 0;
-    spawnConfig.tank.timer = 600; // 10s * 60
+    spawnConfig.tank.timer = 600; 
 
-    // Poison: 7 per wave (Every 8s)
-    spawnConfig.poison.max = (wave >= 3) ? 3 : 0;
+    // Poison: 7 per wave (Every 4s)
+    spawnConfig.poison.max = (wave >= 3) ? 7 : 0;
     spawnConfig.poison.count = 0;
-    spawnConfig.poison.timer = 480;
+    spawnConfig.poison.timer = 240; 
 
     // Shielded: 2 per wave (Every 12s)
     spawnConfig.shield.max = (wave >= 5) ? 2 : 0;
     spawnConfig.shield.count = 0;
-    spawnConfig.shield.timer = 720; // 12s * 60
+    spawnConfig.shield.timer = 720; 
 }
 
 function randomFrameInWave() {
@@ -184,7 +186,7 @@ class Player {
         this.y = floorY - this.h;
         this.vx = 0;
         this.vy = 0;
-        this.baseSpeed = 4.5;
+        this.baseSpeed = 4.0;
         this.speed = this.baseSpeed;
         this.jumpPower = -13; 
         this.color = '#3498db';
@@ -194,7 +196,7 @@ class Player {
         this.damage = 20; 
         this.gunLevel = 1;
         this.lastShot = 0;
-        this.fireRate = 20; 
+        this.fireRate = 15; // ยิ่งน้อยยิ่งรัว (Default)
         this.isGrounded = true;
         this.isCrouching = false;
         this.jumpCount = 0;
@@ -363,7 +365,8 @@ class Player {
     
     applyPoison() {
         if (this.shield <= 0) { 
-            this.poisonTimer = 600; 
+            // 20. Poison Duration reduced to 5s (300 frames)
+            this.poisonTimer = 300; 
             showNotification("POISONED!");
         }
     }
@@ -409,7 +412,7 @@ class Enemy {
 
         if (type === 'TANK') { 
             this.w = 60; this.h = 90;
-            baseHp = 400; 
+            baseHp = 200; 
             baseSpd = 0.5; 
             this.color = '#555'; 
             this.scoreVal = 300;
@@ -417,22 +420,21 @@ class Enemy {
         else if (type === 'POISON') { 
             this.w = 40; this.h = 70;
             baseHp = 50;
-            baseSpd = 0.3;
+            baseSpd = 1.5;
             this.color = '#006400'; 
             this.scoreVal = 150;
-            this.fireRate = 8;
         }
         else if (type === 'SHIELDED') { 
             this.w = 45; this.h = 75;
-            baseHp = 150;
-            this.shield = 150 + (wave * 30); 
+            baseHp = 80;
+            this.shield = 150 + (wave * 50); 
             baseSpd = 1.2;
             this.color = '#34495e';
             this.scoreVal = 200;
         }
         else if (type === 'DRONE') {
             this.w = 30; this.h = 30;
-            baseHp = 20;
+            baseHp = 30;
             baseSpd = 2.0;
             this.color = '#e74c3c';
             this.scoreVal = 80;
@@ -446,7 +448,7 @@ class Enemy {
         }
 
         this.hp = baseHp + (wave * 15);
-        this.speed = baseSpd;
+        this.speed = baseSpd + (wave * 0.05);
 
         if (Math.random() < 0.5) {
             this.x = -50; 
@@ -464,7 +466,7 @@ class Enemy {
         }
         
         this.lastShot = 0;
-        this.fireRate = Math.max(50, 160); 
+        this.fireRate = Math.max(50, 160 - (wave * 5)); 
         this.lastShot = frames + Math.random() * 100;
     }
     
@@ -798,7 +800,7 @@ class Item {
         this.y = y;
         this.w = 30;
         this.h = 30;
-        this.type = type; 
+        this.type = type; // HEAL, UPGRADE, SHIELD, SCORE, MAXHP, FIRERATE
         this.vy = 0;
         this.grounded = false;
         
@@ -807,6 +809,7 @@ class Item {
         if (type === 'SHIELD') this.color = '#3498db'; 
         if (type === 'SCORE') this.color = '#f1c40f'; 
         if (type === 'MAXHP') this.color = '#9b59b6'; 
+        if (type === 'FIRERATE') this.color = '#00e5ff'; // Cyan for Fire Rate
     }
     update() {
         if (!this.grounded) {
@@ -931,16 +934,26 @@ function spawnSpecialEvents() {
     if (frames > 0 && frames % 900 === 0) { 
         let rand = Math.random();
         let type = 'SCORE';
-        if (rand < 0.4) {
+        
+        if (rand < 0.35) {
             if (healDropsInWave < 8) {
                 type = 'HEAL';
                 healDropsInWave++;
             } else {
                 type = 'SCORE';
             }
-        } else if (rand < 0.8) {
+        } else if (rand < 0.70) {
             type = 'SHIELD';
+        } else if (rand < 0.90) {
+            // --- 19. Fire Rate Drop Logic ---
+            if (fireRateDropsInWave < 2) {
+                type = 'FIRERATE';
+                fireRateDropsInWave++;
+            } else {
+                type = 'SCORE';
+            }
         }
+        
         let x = 50 + Math.random() * (canvas.width - 100);
         items.push(new Item(x, -50, type));
         showNotification("SUPPLIES INCOMING!");
@@ -956,7 +969,6 @@ function spawnSpecialEvents() {
 function handleWeather() {
     let cycle = frames % weatherCycleLength; 
     
-    // --- 16. Removed Soul Sand, Thunderstorm 10-20px ---
     if (cycle === 600) { 
         let r = Math.random();
         weatherInitFrame = frames;
@@ -997,9 +1009,8 @@ function handleWeather() {
     
     else if (weather === 'THUNDERSTORM') {
         if (frames % 60 === 0) {
-            // --- 16. Thunderstorm Targeting: Near Player (10-20px) ---
             let pCenter = player.x + player.w / 2;
-            let offset = 10 + Math.random() * 10; // Random 10 to 20
+            let offset = 10 + Math.random() * 10; 
             let dir = Math.random() < 0.5 ? -1 : 1;
             let strikeX = pCenter + (offset * dir);
 
@@ -1042,7 +1053,7 @@ function handleWeather() {
     else if (weather === 'LAVA') {
         let activeTime = frames - weatherInitFrame;
         
-        if (activeTime > 120) {
+        if (activeTime > 60) {
             let lavaH = 110; 
             let currentLavaY = floorY - lavaH;
             
@@ -1051,7 +1062,7 @@ function handleWeather() {
             
             if (player.y + player.h > currentLavaY + 10) {
                 if (frames % 45 === 0) { 
-                    player.takeDamage(40); 
+                    player.takeDamage(60); 
                 }
             }
         }
@@ -1115,6 +1126,11 @@ function checkCollisions() {
             if (it.type === 'SHIELD') { player.shield = 50; showNotification("SHIELD EQUIPPED!"); }
             if (it.type === 'SCORE') { score += 500; }
             if (it.type === 'MAXHP') { player.maxHp += 5; player.hp += 5; showNotification("MAX HP INCREASED!"); }
+            // --- 19. Fire Rate Pickup ---
+            if (it.type === 'FIRERATE') { 
+                player.fireRate = Math.max(5, player.fireRate - 5); 
+                showNotification("RAPID FIRE!"); 
+            }
             
             items.splice(i, 1);
             updateHUD();
@@ -1303,4 +1319,3 @@ function endGame() {
 function resetGame() {
     startGame();
 }
-
