@@ -10,6 +10,7 @@
 
     <canvas id="gameCanvas"></canvas>
 
+    <!-- UI Layer (HUD) -->
     <div id="ui-layer">
         <div id="hp-container" class="hud-panel">
             <div>HP <span id="hp-text">100</span>%</div>
@@ -34,11 +35,10 @@
         <div id="notification">ACID RAIN INCOMING!</div>
         <div id="wave-announcement">WAVE 2</div>
         
-        <!-- Mobile Controls -->
         <div id="mobile-controls">
             <div id="btn-left" class="control-btn">◄</div>
             <div id="btn-right" class="control-btn">►</div>
-            <div id="btn-crouch" class="control-btn">▼</div> <!-- ปุ่มก้มตัว -->
+            <div id="btn-crouch" class="control-btn">▼</div>
             <div id="btn-shoot" class="control-btn">●</div>
             <div id="btn-jump" class="control-btn">▲</div>
         </div>
@@ -48,9 +48,41 @@
     <div id="start-screen" class="screen">
         <h1>Soldier Frontline</h1>
         <p>ยิงศัตรู หลบสิ่งกีดขวาง และเอาชีวิตรอดจากบอส</p>
-        <p style="font-size: 14px; color: #aaa;">PC: A/D เดิน, S ก้มตัว, Space/W กระโดด (กด 2 ครั้งได้เลย), คลิก ยิง<br>Mobile: ปุ่มบนหน้าจอ (แตะ 2 ครั้ง)</p>
-        <div style="margin-bottom: 20px;">High Score: <span id="high-score">0</span></div>
-        <button class="btn" onclick="startGame()">DEPLOY (เริ่มเกม)</button>
+        <p style="font-size: 14px; color: #aaa;">High Score: <span id="high-score">0</span></p>
+        <!-- เปลี่ยน onclick เป็น showTutorial() -->
+        <button class="btn" onclick="showTutorial()">OPEN MANUAL (คู่มือ)</button>
+    </div>
+
+    <!-- Tutorial Screen (NEW) -->
+    <div id="tutorial-screen" class="screen hidden">
+        <h1>MISSION BRIEFING</h1>
+        
+        <div class="tutorial-container">
+            <div class="tut-col">
+                <h3>CONTROLS</h3>
+                <p><b>W / Space:</b> กระโดด (2 ชั้น)</p>
+                <p><b>A / D:</b> เดินซ้าย-ขวา</p>
+                <p><b>S:</b> ก้มหลบ</p>
+                <p><b>Mouse:</b> เล็งและยิง</p>
+            </div>
+            <div class="tut-col">
+                <h3>SUPPLIES</h3>
+                <p><span style="color:#2ecc71">■</span> HEAL: ฟื้นฟูเลือด</p>
+                <p><span style="color:#e67e22">■</span> UPGRADE: เพิ่มดาเมจปืน</p>
+                <p><span style="color:#3498db">■</span> SHIELD: เกราะป้องกัน</p>
+                <p><span style="color:#00e5ff">■</span> FIRE RATE: ยิงรัวขึ้น</p>
+                <p><span style="color:#9b59b6">■</span> MAX HP: เพิ่มเลือดสูงสุด (Boss Drop)</p>
+            </div>
+            <div class="tut-col">
+                <h3>HAZARDS</h3>
+                <p><b style="color:#a569bd">Acid Rain:</b> ฝนกรด (หลบใต้หลังคา)</p>
+                <p><b style="color:#00ffff">Thunderstorm:</b> ฟ้าผ่า (ห้ามยืนที่แสงฟ้า)</p>
+                <p><b style="color:#ff4500">Lava:</b> พื้นลาวา (ขึ้นที่สูง)</p>
+                <p><b style="color:#ff0000">BOSS ULT:</b> ถ้าพื้นแดงให้ขึ้นที่สูงทันที!</p>
+            </div>
+        </div>
+
+        <button id="btn-start-game" class="btn disabled" onclick="startGame()" disabled>READING... (10)</button>
     </div>
 
     <!-- Game Over Screen -->
@@ -59,6 +91,7 @@
         <p>Score: <span id="final-score">0</span></p>
         <button class="btn" onclick="resetGame()">RETRY (เล่นใหม่)</button>
     </div>
+
     <script src="game.js"></script>
 </body>
 </html>
