@@ -1,6 +1,6 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Max HP & Enemy Movement Update)
+ * Soldier Frontline: Operation Survival (Boss Overhaul & Ultimate Update)
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -430,19 +430,15 @@ class Enemy {
         this.hp = baseHp + (wave * 15);
         this.speed = baseSpd + (wave * 0.05);
 
-        // --- 12. Spawn Random Left/Right & Movement Logic ---
         if (Math.random() < 0.5) {
-            // Spawn Left
             this.x = -50; 
             this.vx = this.speed; 
         } else {
-            // Spawn Right
             this.x = canvas.width + 50; 
             this.vx = -this.speed;
         }
-        this.entered = false; // flag to check if entered screen
+        this.entered = false; 
 
-        // Spawn Y Position
         if (type === 'DRONE') {
             this.y = 50 + Math.random() * (floorY - 250);
         } else {
@@ -455,29 +451,24 @@ class Enemy {
     }
     
     update() {
-        // --- 12. Movement Update with Bounce ---
         this.x += this.vx;
 
-        // Check entry
         if (!this.entered) {
             if (this.x > 0 && this.x < canvas.width - this.w) {
                 this.entered = true;
             }
         } else {
-            // Bounce logic
             if (this.x <= 0) {
-                this.vx = Math.abs(this.speed); // Go Right
+                this.vx = Math.abs(this.speed); 
             } else if (this.x >= canvas.width - this.w) {
-                this.vx = -Math.abs(this.speed); // Go Left
+                this.vx = -Math.abs(this.speed); 
             }
         }
 
-        // Drone movement pattern
         if (this.type === 'DRONE') {
             this.y += Math.sin(frames * 0.1) * 2;
         }
 
-        // Shooting
         if (this.x < canvas.width && this.x > 0) {
             if (frames - this.lastShot > this.fireRate) {
                 this.shootSkill();
@@ -526,8 +517,6 @@ class Enemy {
             ctx.fillRect(this.x, this.y-5, this.w, 5);
         } else {
             ctx.fillRect(this.x, this.y, this.w, this.h);
-            
-            // Gun direction
             ctx.fillStyle = '#fff'; 
             if (this.vx > 0) {
                 ctx.fillRect(this.x + this.w - 5, this.y + 10, 10, 5); // Right
@@ -560,81 +549,234 @@ class Enemy {
     }
 }
 
+// --- NEW BOSS CLASS: Unpredictable AI & Ultimate ---
 class Boss {
     constructor() {
-        this.w = 160;
-        this.h = 120;
-        this.x = canvas.width + 100;
-        this.y = floorY - this.h - 50; 
-        
-        this.maxHp = 1500 + (wave * 1000); 
+        this.maxHp = 2000 + (wave * 1200); 
         this.hp = this.maxHp;
         
-        this.phase = 'ENTER'; 
-        this.targetX = canvas.width - 250;
+        this.phase = 'ENTER'; // ENTER, ACTION, ULTIMATE
+        this.state = 'IDLE';  // Sub-states: IDLE, MOVE, ATTACK, PREPARE_ULT
+        this.timer = 0;
         
+        this.ultReady = false;
+        this.ultCharge = 0;
+        this.ultMaxCharge = 1000;
+        
+        // Define Boss Type based on Wave
         if (wave % 3 === 1) {
-            this.bossType = 'TANK'; 
-            this.color = '#8e44ad';
+            this.bossType = 'IRON CLAD'; // Tanky, Slow
+            this.w = 200; this.h = 150;
+            this.color = '#2e4053';
+            this.speed = 1.0;
         } else if (wave % 3 === 2) {
-            this.bossType = 'SPEED'; 
+            this.bossType = 'VIPER'; // Fast, Triangle
+            this.w = 120; this.h = 80;
             this.color = '#c0392b';
+            this.speed = 4.0;
         } else {
-            this.bossType = 'OVERLORD'; 
-            this.color = '#2c3e50';
+            this.bossType = 'NEXUS'; // Floating, Magic
+            this.w = 140; this.h = 140;
+            this.color = '#8e44ad';
+            this.speed = 2.0;
         }
+
+        // Spawn Right
+        this.x = canvas.width + 100;
+        this.y = floorY - this.h - 50;
+        this.targetX = canvas.width - 300;
+        this.moveDir = -1;
 
         document.getElementById('boss-hud').style.display = 'block';
         document.getElementById('score-container').style.display = 'none'; 
         updateBossHUD(this.hp, this.maxHp);
+        
+        this.actionTimer = 0;
     }
+
     update() {
+        // --- 1. Entry Phase ---
         if (this.phase === 'ENTER') {
             if (this.x > this.targetX) {
-                this.x -= 2; 
+                this.x -= 2;
             } else {
-                this.phase = 'ATTACK';
+                this.phase = 'ACTION';
+                this.pickNextAction();
             }
-        } else if (this.phase === 'ATTACK') {
-            let floatSpeed = this.bossType === 'SPEED' ? 0.1 : 0.03;
-            this.y = (floorY - this.h - 50) + Math.sin(frames * floatSpeed) * 80; 
+            return;
+        }
 
-            let attackRate = this.bossType === 'SPEED' ? 60 : 100;
+        // --- 2. Ultimate Phase (Priority) ---
+        if (this.phase === 'ULTIMATE') {
+            this.handleUltimate();
+            return;
+        }
+
+        // --- 3. Action Phase (AI Loop) ---
+        // Charge Ultimate Gauge slowly
+        if (this.ultCharge < this.ultMaxCharge) {
+            this.ultCharge += 2;
+        } else {
+            // Trigger Ultimate
+            this.startUltimate();
+            return;
+        }
+
+        this.actionTimer--;
+        
+        // Execute Current State
+        if (this.state === 'MOVE') {
+            this.x += this.speed * this.moveDir;
             
-            if (frames % attackRate === 0) { 
-                let angle = Math.atan2((player.y + player.h/2) - (this.y + this.h/2), (player.x + player.w/2) - this.x);
-                let bSpeed = this.bossType === 'SPEED' ? 8 : 5;
-                let dmg = 20 + wave;
-                enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*bSpeed, Math.sin(angle)*bSpeed, dmg, false));
+            // Wall Bounce
+            if (this.x <= 50) this.moveDir = 1;
+            if (this.x >= canvas.width - this.w - 50) this.moveDir = -1;
+            
+            // Hover for Nexus/Viper
+            if (this.bossType !== 'IRON CLAD') {
+                this.y = (floorY - this.h - 50) + Math.sin(frames * 0.05) * 50;
             }
 
-            if (frames % (attackRate * 2) === 0) {
-                if (this.bossType === 'OVERLORD') {
-                    for(let i=0; i<8; i++) {
-                        let a = (Math.PI*2 / 8) * i;
-                        enemyBullets.push(new Bullet(this.x + this.w/2, this.y + this.h/2, Math.cos(a)*5, Math.sin(a)*5, 15, false));
-                    }
-                } else {
-                    for(let i=-1; i<=1; i++) {
-                         enemyBullets.push(new Bullet(this.x, this.y + this.h/2, -5, i * 2, 15, false));
-                    }
-                }
+        } else if (this.state === 'ATTACK') {
+             // Attack Logic varies by boss
+             if (frames % 30 === 0) this.performAttack();
+        }
+
+        // Pick new action when timer ends
+        if (this.actionTimer <= 0) {
+            this.pickNextAction();
+        }
+    }
+
+    pickNextAction() {
+        let rand = Math.random();
+        
+        if (rand < 0.4) {
+            this.state = 'MOVE';
+            this.actionTimer = 60 + Math.random() * 120; // Move for 1-3 sec
+            // Random direction
+            this.moveDir = (player.x < this.x) ? -1 : 1;
+        } else if (rand < 0.9) {
+            this.state = 'ATTACK';
+            this.actionTimer = 60 + Math.random() * 60; // Attack for 1-2 sec
+        } else {
+            this.state = 'IDLE'; // Pause briefly
+            this.actionTimer = 30;
+        }
+    }
+
+    performAttack() {
+        let targetX = player.x + player.w/2;
+        let targetY = player.y + player.h/2;
+        let angle = Math.atan2(targetY - (this.y + this.h/2), targetX - this.x);
+        let dmg = 15 + wave;
+
+        if (this.bossType === 'IRON CLAD') {
+            // Big Bomb
+            enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, dmg*1.5, false));
+        } else if (this.bossType === 'VIPER') {
+            // Rapid Lasers
+            enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*12, Math.sin(angle)*12, dmg, false));
+        } else {
+            // Nexus Omni-shot
+             for(let i=0; i<6; i++) {
+                let a = angle + (i * (Math.PI/3));
+                enemyBullets.push(new Bullet(this.x + this.w/2, this.y + this.h/2, Math.cos(a)*5, Math.sin(a)*5, dmg, false));
             }
         }
     }
-    draw() {
-        ctx.fillStyle = this.color;
-        ctx.fillRect(this.x, this.y, this.w, this.h);
-        
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(this.x + 20, this.y + 30, 40, 10);
-        ctx.fillRect(this.x + this.w - 60, this.y + 30, 40, 10);
-        
-        ctx.fillStyle = '#f39c12';
-        ctx.beginPath();
-        ctx.arc(this.x + this.w/2, this.y + this.h/2 + 20, 20, 0, Math.PI*2);
-        ctx.fill();
+
+    startUltimate() {
+        this.phase = 'ULTIMATE';
+        this.state = 'PREPARE'; // Warning State
+        this.timer = 180; // 3 Seconds Warning
+        showNotification("⚠️ WARNING: GET TO HIGH GROUND! ⚠️");
     }
+
+    handleUltimate() {
+        this.timer--;
+        
+        // Phase 1: Warning
+        if (this.state === 'PREPARE') {
+            // Flash Floor Effect is handled in GameLoop draw
+            if (this.timer <= 0) {
+                this.state = 'EXECUTE';
+                this.timer = 300; // 5 Seconds Active
+                showNotification("🔥 FLOOR IS DEADLY! 🔥");
+            }
+        } 
+        // Phase 2: Execution (Damage)
+        else if (this.state === 'EXECUTE') {
+            // Check Player Y Position
+            // If player is on the ground level (floorY), take massive damage
+            // Safety Margin: floorY - 20
+            if (player.y + player.h >= floorY - 10) {
+                if (frames % 10 === 0) { // Damage every 10 frames
+                    player.takeDamage(10);
+                    createParticles(player.x, player.y + player.h, 5, '#ff0000');
+                }
+            }
+
+            if (this.timer <= 0) {
+                this.phase = 'ACTION';
+                this.ultCharge = 0;
+                this.pickNextAction();
+                showNotification("SAFE TO DESCEND");
+            }
+        }
+    }
+
+    draw() {
+        // Draw Ultimate Warning Floor
+        if (this.phase === 'ULTIMATE') {
+            ctx.save();
+            if (this.state === 'PREPARE') {
+                ctx.fillStyle = (Math.floor(frames / 10) % 2 === 0) ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 255, 0, 0.3)';
+            } else {
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; // Lava!
+            }
+            ctx.fillRect(0, floorY - 10, canvas.width, 100);
+            ctx.restore();
+        }
+
+        // Draw Boss
+        ctx.fillStyle = this.color;
+        
+        if (this.bossType === 'VIPER') {
+            // Triangle shape
+            ctx.beginPath();
+            ctx.moveTo(this.x + this.w/2, this.y);
+            ctx.lineTo(this.x + this.w, this.y + this.h);
+            ctx.lineTo(this.x, this.y + this.h);
+            ctx.closePath();
+            ctx.fill();
+        } else if (this.bossType === 'NEXUS') {
+            // Circle shape
+            ctx.beginPath();
+            ctx.arc(this.x + this.w/2, this.y + this.h/2, this.w/2, 0, Math.PI*2);
+            ctx.fill();
+        } else {
+            // Tank Box
+            ctx.fillRect(this.x, this.y, this.w, this.h);
+            // Armor plates
+            ctx.fillStyle = '#566573';
+            ctx.fillRect(this.x - 10, this.y + 20, 10, this.h - 40);
+        }
+
+        // Draw Health Bar above boss
+        if (this.phase !== 'ULTIMATE') {
+            let hpPct = this.ultCharge / this.ultMaxCharge;
+            ctx.fillStyle = '#333';
+            ctx.fillRect(this.x, this.y - 20, this.w, 10);
+            ctx.fillStyle = '#f1c40f'; // Yellow for Ult Charge
+            ctx.fillRect(this.x, this.y - 20, this.w * hpPct, 10);
+        } else {
+             ctx.fillStyle = '#fff';
+             ctx.font = 'bold 20px Arial';
+             ctx.fillText("ULTIMATE ACTIVE!", this.x, this.y - 30);
+        }
+    }
+
     takeDamage(amount) {
         this.hp -= amount;
         updateBossHUD(this.hp, this.maxHp);
@@ -924,7 +1066,7 @@ function updateHUD() {
     document.getElementById('gun-dmg').innerText = player.damage;
     
     if (boss) {
-         document.getElementById('wave-display').innerText = `WAVE ${wave} (BOSS!)`;
+         document.getElementById('wave-display').innerText = `BOSS: ${boss.bossType}`;
          document.getElementById('wave-display').style.color = 'red';
     } else {
          let timeLeft = Math.ceil(waveTimer / 60);
@@ -1007,8 +1149,7 @@ function gameLoop() {
             e.update();
             e.draw();
             if (e.x < -100 && e.x > canvas.width + 100) { 
-                // Cleanup out of bounds if really far, but normal movement bounces back
-                // We leave this mostly empty or specific cleanup logic
+               // Cleanup
             }
         });
 
