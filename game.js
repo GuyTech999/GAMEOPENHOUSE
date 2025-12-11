@@ -1448,7 +1448,6 @@ function handleWeather() {
             ctx.lineTo(rx - 5, ry + 20);
             ctx.stroke();
         }
-        // [REVERT] Acid Rain is deadly again (12 frames)
         if (frames % 12 === 0) { 
             let isSheltered = false;
             let pCenter = player.x + player.w/2;
@@ -1462,7 +1461,7 @@ function handleWeather() {
         }
     } 
     
-        else if (weather === 'THUNDERSTORM') {
+    else if (weather === 'THUNDERSTORM') {
         if (frames % 60 === 0) {
             let pCenter = player.x + player.w / 2;
             let offset = 10 + Math.random() * 10; 
@@ -1512,42 +1511,46 @@ function handleWeather() {
     const FLASH_COUNT = 2;        // กระพริบ 2 รอบ
     const FLASH_DURATION = WARNING_DURATION / FLASH_COUNT / 2;
 
-    // หาแพลตฟอร์มที่ต่ำที่สุด
+    
     let lowestPlatformY = Infinity;
     platforms.forEach(p => {
         if (p.y < lowestPlatformY) lowestPlatformY = p.y;
     });
 
-    // ความสูงลาวา
+    
     let lavaH = 110;
 
-    // ตำแหน่ง Y ของลาวาจะอยู่ตรงนี้ (แต่จะโชว์หลังหมดช่วงเตือน)
+    
     let predictedLavaY = Math.max(floorY - lavaH, lowestPlatformY);
 
     if (activeTime < WARNING_DURATION) {
 
-        // --- เอฟเฟกต์กระพริบส้มเฉพาะบริเวณลาวา ---
+        
         let flashPhase = Math.floor(activeTime / FLASH_DURATION);
         if (flashPhase % 2 === 0) {
             ctx.fillStyle = 'rgba(255, 140, 0, 0.25)';
             ctx.fillRect(0, predictedLavaY, canvas.width, lavaH);
         }
 
-    } else {
+    } 
+    else {
 
-        // --- เริ่มปล่อยลาวา ---
+        
         let currentLavaY = predictedLavaY;
 
         ctx.fillStyle = 'rgba(255, 69, 0, 0.8)';
         ctx.fillRect(0, currentLavaY, canvas.width, lavaH);
 
-        // --- ตรวจจับการโดนลาวา ---
+        
         if (player.y + player.h > currentLavaY + 10) {
             if (frames % 45 === 0) {
                 player.takeDamage(60);
             }
         }
     }
+}
+
+ 
 }
 
 function checkCollisions() {
@@ -1803,4 +1806,5 @@ function endGame() {
 function resetGame() {
     startGame();
 }
+
 
