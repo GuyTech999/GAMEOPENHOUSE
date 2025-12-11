@@ -1,6 +1,10 @@
 /**
  * CORE GAME ENGINE
- * Soldier Frontline: Operation Survival (Weather & Spawn Balance Patch)
+ * Soldier Frontline: Operation Survival (Heal/Shield Balance Patch)
+ * - Heal Drop: Unlimited per wave
+ * - Drop Rate: Shield (30%) > Heal (15%)
+ * - Weather: Hardcore Mode (Active)
+ * - I-Frames: Removed
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -44,7 +48,7 @@ let weather = 'CLEAR';
 const weatherCycleLength = 900; 
 let lightningStrikes = []; 
 let weatherInitFrame = 0; 
-let lavaHit = false; // ตัวแปรเช็คว่าโดนดาเมจลาวาหรือยัง
+let lavaHit = false;
 
 // Entities
 let player;
@@ -149,12 +153,12 @@ function initWave() {
     healDropsInWave = 0; 
     fireRateDropsInWave = 0;
     
+    // Random Weapon Upgrades
     for (let i = 0; i < 3; i++) {
         upgradeSchedule.push(randomFrameInWave());
     }
 
     // --- Spawn Config ---
-    
     spawnConfig.soldier.max = 4 + ((wave - 1) * 2);
     spawnConfig.soldier.count = 0;
     spawnConfig.soldier.timer = 60; 
@@ -226,7 +230,9 @@ class Player {
         this.isCrouching = false;
         this.jumpCount = 0;
         this.maxJumps = 2;
+        this.killUltGain = 50; 
 
+        // No I-Frames
         this.poisonTimer = 0; 
         this.poisonTick = 0;  
 
@@ -342,6 +348,10 @@ class Player {
         bullets.push(new Bullet(startX, startY, Math.cos(angle)*speed, Math.sin(angle)*speed, 100, true, false, true));
     }
 
+    gainUlt(amount) {
+        this.ultTimer = Math.max(0, this.ultTimer - amount);
+    }
+
     updateUltUI() {
         let pct = 0;
         if (this.ultTimer <= 0) {
@@ -428,6 +438,7 @@ class Player {
         } else {
             this.hp -= amount;
         }
+        
         createParticles(this.x + this.w/2, this.y + this.h/2, 10, '#f00');
         updateHUD();
         
@@ -621,7 +632,6 @@ class Enemy {
             }
         } 
         else if (this.type === 'DRONE') {
-            // --- 27. Fix Drone Damage 5 ---
             enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, 5, false, false));
             setTimeout(() => {
                  enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*6, Math.sin(angle)*6, 5, false, false));
@@ -722,7 +732,7 @@ class Boss {
         this.ultCharge = 0;
         this.ultMaxCharge = 1000;
 
-        // Iron Clad
+        // --- Iron Clad Vars ---
         this.hitCount = 0;
         this.isStunned = false;
         this.stunTimer = 0;
@@ -730,8 +740,13 @@ class Boss {
         this.explosionTimer = 0;
         this.spikeCount = 0; 
 
-        // Viper
+        // --- Viper Vars ---
         this.laserAngle = 0;
+
+        // --- Nexus Vars (Modified) ---
+        this.angle = 0; // For spinning
+        this.lockAngle = 0; // For Ult
+        this.flashCount = 0;
 
         document.getElementById('boss-hud').style.display = 'block';
         document.getElementById('score-container').style.display = 'none'; 
@@ -747,6 +762,11 @@ class Boss {
                 this.pickNextAction();
             }
             return;
+        }
+
+        // Nexus: Always spin
+        if (this.bossType === 'NEXUS') {
+            this.angle += 0.05;
         }
 
         if (this.bossType === 'IRON CLAD') {
@@ -770,7 +790,6 @@ class Boss {
                     let py = player.y + player.h/2;
                     let dist = Math.sqrt((px-centerBx)**2 + (py-centerBy)**2);
                     
-                    // --- 26. Instant Kill on Explosion ---
                     if (dist < 200) { 
                         player.takeDamage(9999); 
                     }
@@ -807,7 +826,9 @@ class Boss {
                 this.y = (floorY - this.h - 50) + Math.sin(frames * 0.05) * 50;
             }
         } else if (this.state === 'ATTACK') {
-             if (frames % 30 === 0) this.performAttack();
+             // NEXUS: Fire Rate Reduced (0.2 reduction approx 20% slower -> modulo 38 instead of 30)
+             let fireRate = (this.bossType === 'NEXUS') ? 38 : 30;
+             if (frames % fireRate === 0) this.performAttack();
         }
 
         if (this.actionTimer <= 0) {
@@ -833,7 +854,9 @@ class Boss {
     performAttack() {
         let targetX = player.x + player.w/2;
         let targetY = player.y + player.h/2;
-        let angle = Math.atan2(targetY - (this.y + this.h/2), targetX - this.x);
+        let cx = this.x + this.w/2;
+        let cy = this.y + this.h/2;
+        let angle = Math.atan2(targetY - cy, targetX - this.x);
         let dmg = 15 + wave;
 
         if (this.bossType === 'IRON CLAD') {
@@ -841,9 +864,11 @@ class Boss {
         } else if (this.bossType === 'VIPER') {
             enemyBullets.push(new Bullet(this.x, this.y + this.h/2, Math.cos(angle)*12, Math.sin(angle)*12, dmg, false));
         } else {
+            // NEXUS: Rotating Shot
              for(let i=0; i<6; i++) {
-                let a = angle + (i * (Math.PI/3));
-                enemyBullets.push(new Bullet(this.x + this.w/2, this.y + this.h/2, Math.cos(a)*5, Math.sin(a)*5, dmg, false));
+                // Add this.angle to the shot direction to make it spin with body
+                let a = this.angle + (i * (Math.PI/3));
+                enemyBullets.push(new Bullet(cx, cy, Math.cos(a)*5, Math.sin(a)*5, dmg, false));
             }
         }
     }
@@ -858,15 +883,22 @@ class Boss {
             this.spikeCount = 3;
             showNotification("⚠️ GROUND TREMOR DETECTED! ⚠️");
         } else if (this.bossType === 'VIPER') {
-            // --- 27. VIPER Windmill Ult ---
             this.state = 'LASER_WINDMILL';
-            this.timer = 300; // 5 Sec
+            this.timer = 300; 
             this.laserAngle = 0;
             showNotification("⚠️ LASER OVERLOAD DETECTED! ⚠️");
         } else {
-            this.state = 'PREPARE'; 
-            this.timer = 180; 
-            showNotification("⚠️ WARNING: GET TO HIGH GROUND! ⚠️");
+            // --- NEXUS ULT MODIFICATION ---
+            // Aim at player and lock position
+            this.state = 'NEXUS_CHARGE'; 
+            this.timer = 180; // Charge 3 seconds
+            
+            // Lock angle immediately
+            let targetX = player.x + player.w/2;
+            let targetY = player.y + player.h/2;
+            this.lockAngle = Math.atan2(targetY - (this.y + this.h/2), targetX - (this.x + this.w/2));
+            
+            showNotification("⚠️ ENERGY SURGE DETECTED! ⚠️");
         }
     }
 
@@ -898,11 +930,9 @@ class Boss {
             return;
         }
 
-        // --- 27. VIPER ULT LOGIC ---
         if (this.bossType === 'VIPER') {
             this.laserAngle += 0.03; 
             
-            // Check Hit every 6 frames (10 dps)
             if (frames % 6 === 0) {
                 let cx = this.x + this.w/2;
                 let cy = this.y + this.h/2;
@@ -911,14 +941,11 @@ class Boss {
                 
                 for (let i = 0; i < 5; i++) {
                     let theta = this.laserAngle + (i * (Math.PI * 2 / 5));
-                    
                     let lx1 = cx + Math.cos(theta) * startOffset;
                     let ly1 = cy + Math.sin(theta) * startOffset;
-                    
                     let lx2 = cx + Math.cos(theta) * maxLen;
                     let ly2 = cy + Math.sin(theta) * maxLen;
 
-                    // Platform Blocking
                     let closestDist = maxLen;
                     platforms.forEach(p => {
                         let hit = lineRectCollide(lx1, ly1, lx2, ly2, p.x, p.y, p.w, p.h);
@@ -943,30 +970,39 @@ class Boss {
             return;
         }
 
-        // NEXUS
-        if (this.state === 'PREPARE') {
-            if (this.timer <= 0) {
-                this.state = 'EXECUTE';
-                this.timer = 300; 
-                showNotification("🔥 FLOOR IS DEADLY! 🔥");
-            }
-        } else if (this.state === 'EXECUTE') {
-            if (player.y + player.h >= floorY - 10) {
-                if (frames % 10 === 0) { 
-                    player.takeDamage(10);
-                    createParticles(player.x, player.y + player.h, 5, '#ff0000');
+        // --- NEXUS ULT LOGIC ---
+        if (this.bossType === 'NEXUS') {
+            if (this.state === 'NEXUS_CHARGE') {
+                // Flash effect is handled in Draw, Timer counts down
+                if (this.timer <= 0) {
+                    // Release Beam
+                    this.state = 'NEXUS_BEAM';
+                    this.timer = 30; // Visual linger duration (0.5s)
+                    
+                    // One-time damage calculation
+                    let cx = this.x + this.w/2;
+                    let cy = this.y + this.h/2;
+                    let maxLen = 2000;
+                    let lx2 = cx + Math.cos(this.lockAngle) * maxLen;
+                    let ly2 = cy + Math.sin(this.lockAngle) * maxLen;
+                    
+                    if (lineRectCollide(cx, cy, lx2, ly2, player.x, player.y, player.w, player.h)) {
+                        player.takeDamage(50);
+                        showNotification("CRITICAL HIT!");
+                    }
+                    createParticles(cx, cy, 30, '#8e44ad');
                 }
-            }
-            if (this.timer <= 0) {
-                this.phase = 'ACTION';
-                this.ultCharge = 0;
-                this.pickNextAction();
-                showNotification("SAFE TO DESCEND");
+            } else if (this.state === 'NEXUS_BEAM') {
+                if (this.timer <= 0) {
+                    this.phase = 'ACTION';
+                    this.pickNextAction();
+                }
             }
         }
     }
 
     draw() {
+        // --- DRAW ULTIMATE VISUALS ---
         if (this.phase === 'ULTIMATE') {
             ctx.save();
             
@@ -975,14 +1011,13 @@ class Boss {
                 ctx.fillRect(player.x - 20, floorY - 10, player.w + 40, 10);
                 ctx.fillRect(player.x, floorY - 200, player.w, 200);
             }
-            // --- 27. Draw Viper Lasers ---
             else if (this.bossType === 'VIPER') {
                 let cx = this.x + this.w/2;
                 let cy = this.y + this.h/2;
                 let startOffset = 10;
                 let maxLen = 2000;
 
-                ctx.lineWidth = 30; // 30px width
+                ctx.lineWidth = 30; 
                 ctx.lineCap = 'round';
                 
                 for (let i = 0; i < 5; i++) {
@@ -1019,12 +1054,38 @@ class Boss {
                 }
             }
             else if (this.bossType === 'NEXUS') {
-                if (this.state === 'PREPARE') {
-                    ctx.fillStyle = (Math.floor(frames / 10) % 2 === 0) ? 'rgba(255, 0, 0, 0.3)' : 'rgba(255, 255, 0, 0.3)';
-                    ctx.fillRect(0, floorY - 10, canvas.width, 100);
-                } else if (this.state === 'EXECUTE') {
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; 
-                    ctx.fillRect(0, floorY - 10, canvas.width, 100);
+                // Draw Beam Warning / Firing
+                let cx = this.x + this.w/2;
+                let cy = this.y + this.h/2;
+                
+                if (this.state === 'NEXUS_CHARGE') {
+                    // Flash 3 times: frames 130-140, 80-90, 30-40 (approx)
+                    // Simple logic: Modulo based flashing near end intervals
+                    let t = this.timer;
+                    let isFlashing = (t > 120 && t < 135) || (t > 70 && t < 85) || (t > 20 && t < 35);
+                    
+                    // Aim Line
+                    ctx.strokeStyle = isFlashing ? 'rgba(255, 255, 255, 0.9)' : 'rgba(142, 68, 173, 0.4)';
+                    ctx.lineWidth = isFlashing ? 5 : 2;
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy);
+                    ctx.lineTo(cx + Math.cos(this.lockAngle) * 2000, cy + Math.sin(this.lockAngle) * 2000);
+                    ctx.stroke();
+                } 
+                else if (this.state === 'NEXUS_BEAM') {
+                    // Big Beam 50px
+                    ctx.lineWidth = 50;
+                    ctx.strokeStyle = '#8e44ad'; // Purple
+                    ctx.lineCap = 'butt';
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy);
+                    ctx.lineTo(cx + Math.cos(this.lockAngle) * 2000, cy + Math.sin(this.lockAngle) * 2000);
+                    ctx.stroke();
+
+                    // Inner core
+                    ctx.lineWidth = 20;
+                    ctx.strokeStyle = '#fff'; 
+                    ctx.stroke();
                 }
             }
             ctx.restore();
@@ -1063,7 +1124,21 @@ class Boss {
             ctx.restore();
         }
 
+        // --- DRAW BOSS BODY ---
+        ctx.save(); // Save for potential rotations
+        
+        let cx = this.x + this.w/2;
+        let cy = this.y + this.h/2;
+        
+        if (this.bossType === 'NEXUS') {
+            // Translate and Rotate
+            ctx.translate(cx, cy);
+            ctx.rotate(this.angle);
+            ctx.translate(-cx, -cy);
+        }
+
         ctx.fillStyle = this.isStunned ? '#999' : this.color; 
+        
         if (this.bossType === 'VIPER') {
             ctx.beginPath();
             ctx.moveTo(this.x + this.w/2, this.y);
@@ -1072,14 +1147,26 @@ class Boss {
             ctx.closePath();
             ctx.fill();
         } else if (this.bossType === 'NEXUS') {
+            // Modified Nexus Draw to show rotation
             ctx.beginPath();
-            ctx.arc(this.x + this.w/2, this.y + this.h/2, this.w/2, 0, Math.PI*2);
+            ctx.arc(cx, cy, this.w/2, 0, Math.PI*2);
+            ctx.fill();
+            
+            // Add details so rotation is visible
+            ctx.fillStyle = '#6c3483';
+            ctx.fillRect(cx - this.w/2, cy - 10, this.w, 20); // Horizontal bar
+            ctx.fillRect(cx - 10, cy - this.w/2, 20, this.w); // Vertical bar
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 20, 0, Math.PI*2); // Center Core
             ctx.fill();
         } else {
             ctx.fillRect(this.x, this.y, this.w, this.h);
             ctx.fillStyle = '#566573';
             ctx.fillRect(this.x - 10, this.y + 20, 10, this.h - 40);
         }
+
+        ctx.restore(); // Restore context (undo rotation)
 
         if (this.isStunned) {
             ctx.fillStyle = 'yellow';
@@ -1152,72 +1239,6 @@ function lineRectCollide(x1, y1, x2, y2, rx, ry, rw, rh) {
     if (u4 && u4 < minU) minU = u4;
 
     if (minU < 1.0) {
-        let dx = x2 - x1;
-        let dy = y2 - y1;
-        let dist = Math.sqrt(dx*dx + dy*dy) * minU;
-        return { dist: dist };
-    }
-    return null;
-}
-
-function lineLine(x1, y1, x2, y2, x3, y3, x4, y4) {
-    let uA = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
-    let uB = ((x2-x1)*(y1-y3) - (y2-y1)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
-    if (uA >= 0 && uA <= 1 && uB >= 0 && uB <= 1) {
-        return uA;
-    }
-    return null;
-}
-// --- Helper: Line to Rect Collision for Laser ---
-function lineRectCollide(x1, y1, x2, y2, rx, ry, rw, rh) {
-    let u1 = lineLine(x1, y1, x2, y2, rx, ry, rx+rw, ry);
-    let u2 = lineLine(x1, y1, x2, y2, rx, ry+rh, rx+rw, ry+rh);
-    let u3 = lineLine(x1, y1, x2, y2, rx, ry, rx, ry+rh);
-    let u4 = lineLine(x1, y1, x2, y2, rx+rw, ry, rx+rw, ry+rh);
-
-    let minU = 1.0;
-    if (u1 && u1 < minU) minU = u1;
-    if (u2 && u2 < minU) minU = u2;
-    if (u3 && u3 < minU) minU = u3;
-    if (u4 && u4 < minU) minU = u4;
-
-    if (minU < 1.0) {
-        let dx = x2 - x1;
-        let dy = y2 - y1;
-        let dist = Math.sqrt(dx*dx + dy*dy) * minU;
-        return { dist: dist };
-    }
-    return null;
-}
-
-function lineLine(x1, y1, x2, y2, x3, y3, x4, y4) {
-    let uA = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
-    let uB = ((x2-x1)*(y1-y3) - (y2-y1)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
-    if (uA >= 0 && uA <= 1 && uB >= 0 && uB <= 1) {
-        return uA;
-    }
-    return null;
-}
-// --- Helper: Line to Rect Collision for Laser ---
-function lineRectCollide(x1, y1, x2, y2, rx, ry, rw, rh) {
-    // Check if line intersects any of the 4 lines of the rect
-    // Top
-    let u1 = lineLine(x1, y1, x2, y2, rx, ry, rx+rw, ry);
-    // Bottom
-    let u2 = lineLine(x1, y1, x2, y2, rx, ry+rh, rx+rw, ry+rh);
-    // Left
-    let u3 = lineLine(x1, y1, x2, y2, rx, ry, rx, ry+rh);
-    // Right
-    let u4 = lineLine(x1, y1, x2, y2, rx+rw, ry, rx+rw, ry+rh);
-
-    let minU = 1.0;
-    if (u1 && u1 < minU) minU = u1;
-    if (u2 && u2 < minU) minU = u2;
-    if (u3 && u3 < minU) minU = u3;
-    if (u4 && u4 < minU) minU = u4;
-
-    if (minU < 1.0) {
-        // Calculate distance
         let dx = x2 - x1;
         let dy = y2 - y1;
         let dist = Math.sqrt(dx*dx + dy*dy) * minU;
@@ -1367,26 +1388,24 @@ function spawnSystem() {
 function spawnSpecialEvents() {
     if (boss) return;
 
-    if (frames > 0 && frames % 900 === 0) { 
+    if (frames > 0 && frames % 900 === 0) { // Every 15 seconds
         let rand = Math.random();
         let type = 'SCORE';
         
-        if (rand < 0.35) {
-            if (healDropsInWave < 8) {
-                type = 'HEAL';
-                healDropsInWave++;
-            } else {
-                type = 'SCORE';
-            }
-        } else if (rand < 0.70) {
-            type = 'SHIELD';
-        } else if (rand < 0.90) {
+        // Logic: Shield > Heal chance, No limits on count
+        if (rand < 0.30) {
+            type = 'SHIELD'; // 30% Chance (Most common survival item)
+        } else if (rand < 0.45) { // 0.30 to 0.45 = 15% Chance
+            type = 'HEAL';   // [MOD] Unlimited drops, but lower chance than shield
+        } else if (rand < 0.60) {
             if (fireRateDropsInWave < 2) {
                 type = 'FIRERATE';
                 fireRateDropsInWave++;
             } else {
                 type = 'SCORE';
             }
+        } else {
+            type = 'SCORE';
         }
         
         let x = 50 + Math.random() * (canvas.width - 100);
@@ -1429,6 +1448,7 @@ function handleWeather() {
             ctx.lineTo(rx - 5, ry + 20);
             ctx.stroke();
         }
+        // [REVERT] Acid Rain is deadly again (12 frames)
         if (frames % 12 === 0) { 
             let isSheltered = false;
             let pCenter = player.x + player.w/2;
@@ -1452,7 +1472,8 @@ function handleWeather() {
             if (strikeX < 20) strikeX = 20;
             if (strikeX > canvas.width - 20) strikeX = canvas.width - 20;
 
-            lightningStrikes.push({ x: strikeX, timer: 30, state: 'WARN' }); 
+            // [REVERT] Less warning time (18 frames)
+            lightningStrikes.push({ x: strikeX, timer: 18, state: 'WARN' }); 
         }
 
         for (let i = lightningStrikes.length - 1; i >= 0; i--) {
@@ -1467,6 +1488,7 @@ function handleWeather() {
                     s.state = 'STRIKE';
                     s.timer = 10; 
                     if (player.x < s.x + 20 && player.x + player.w > s.x - 20) {
+                        // [REVERT] High Damage (30)
                         player.takeDamage(30); 
                         showNotification("ZAPPED!");
                     }
@@ -1486,55 +1508,25 @@ function handleWeather() {
     } 
     
     else if (weather === 'LAVA') {
-    let activeTime = frames - weatherInitFrame;
-
-    const WARNING_DURATION = 180; // 4 วินาที (60fps)
-    const FLASH_COUNT = 2;        // กระพริบ 2 รอบ
-    const FLASH_DURATION = WARNING_DURATION / FLASH_COUNT / 2;
-
-    // หาแพลตฟอร์มที่ต่ำที่สุด
-    let lowestPlatformY = Infinity;
-    platforms.forEach(p => {
-        if (p.y < lowestPlatformY) lowestPlatformY = p.y;
-    });
-
-    // ความสูงลาวา
-    let lavaH = 110;
-
-    // ตำแหน่ง Y ของลาวาจะอยู่ตรงนี้ (แต่จะโชว์หลังหมดช่วงเตือน)
-    let predictedLavaY = Math.max(floorY - lavaH, lowestPlatformY);
-
-    if (activeTime < WARNING_DURATION) {
-
-        // --- เอฟเฟกต์กระพริบส้มเฉพาะบริเวณลาวา ---
-        let flashPhase = Math.floor(activeTime / FLASH_DURATION);
-        if (flashPhase % 2 === 0) {
-            ctx.fillStyle = 'rgba(255, 140, 0, 0.25)';
-            ctx.fillRect(0, predictedLavaY, canvas.width, lavaH);
-        }
-
-    } else {
-
-        // --- เริ่มปล่อยลาวา ---
-        let currentLavaY = predictedLavaY;
-
-        ctx.fillStyle = 'rgba(255, 69, 0, 0.8)';
-        ctx.fillRect(0, currentLavaY, canvas.width, lavaH);
-
-        // --- ตรวจจับการโดนลาวา ---
-        if (player.y + player.h > currentLavaY + 10) {
-            if (frames % 45 === 0) {
-                player.takeDamage(60);
+        let activeTime = frames - weatherInitFrame;
+        
+        if (activeTime > 60) {
+            let lavaH = 110; 
+            let currentLavaY = floorY - lavaH;
+            
+            ctx.fillStyle = 'rgba(255, 69, 0, 0.8)';
+            ctx.fillRect(0, currentLavaY, canvas.width, lavaH);
+            
+            if (player.y + player.h > currentLavaY + 10) {
+                if (frames % 45 === 0) { 
+                    player.takeDamage(60); 
+                }
             }
         }
-    }
-}
-
- 
+    } 
 }
 
 function checkCollisions() {
-    // --- 23. Add Ult Gain on Kill Logic ---
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         if (!b.active) continue;
@@ -1556,7 +1548,7 @@ function checkCollisions() {
                 
                 e.takeDamage(player.damage); 
                 
-                if (!b.isExplosive) b.active = false; // Explo bullets don't vanish on 1 hit
+                if (!b.isExplosive) b.active = false; 
                 
                 if (e.hp <= 0) {
                     if (Math.random() < 0.15) { 
@@ -1564,7 +1556,6 @@ function checkCollisions() {
                     }
                     enemies.splice(j, 1);
                     score += e.scoreVal;
-                    // Gain Ult Charge on Kill
                     player.gainUlt(player.killUltGain);
                 }
                 break;
@@ -1713,7 +1704,6 @@ function gameLoop() {
             boss.update();
             boss.draw();
         } else {
-            // --- 17. Use Spawn System ---
             spawnSystem();
         }
 
@@ -1724,7 +1714,7 @@ function gameLoop() {
 
         keys_last.space = keys.space;
         keys_last.s = keys.s;
-        keys_last.ult = keys.ult; // Track ult key
+        keys_last.ult = keys.ult; 
     }
 }
 
