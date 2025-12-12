@@ -1387,10 +1387,6 @@ function spawnSystem() {
 
 function spawnSpecialEvents() {
     if (boss) return;
-
-    if (frames > 0 && frames % 900 === 0) { // Every 15 seconds
-        let rand = Math.random();
-        let type = 'SCORE';
         
         // [PATCH] Updated Drop Rates: Shield (35%), Heal (20%)
         if (rand < 0.35) {
@@ -1401,12 +1397,6 @@ function spawnSpecialEvents() {
             if (fireRateDropsInWave < 2) {
                 type = 'FIRERATE';
                 fireRateDropsInWave++;
-            } else {
-                type = 'SCORE';
-            }
-        } else {
-            type = 'SCORE';
-        }
         
         let x = 50 + Math.random() * (canvas.width - 100);
         items.push(new Item(x, -50, type));
